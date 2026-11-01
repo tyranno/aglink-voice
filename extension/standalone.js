@@ -126,6 +126,9 @@ function createStandalone(vscode, context, log, { item, active = () => true } = 
           try {
             h = JSON.parse(body);
           } catch {}
+          // Claude Code runs the hook for every session on this PC (the CLI,
+          // aglink's); only VS Code's answers are read.
+          if (h.entrypoint && h.entrypoint !== "claude-vscode") return;
           if (conv && h.last_assistant_message) conv.onReply(h.last_assistant_message);
         });
       });

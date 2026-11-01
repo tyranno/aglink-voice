@@ -16,12 +16,14 @@ const OLD_HOOK_MARK = "vscode-voice-hook"; // aglink-vscode's, desktop only
 
 const HOOK_SCRIPT = `// ${HOOK_MARK}: hands Claude Code's finished turn to the aglink voice
 // (the VS Code extension on ${STANDALONE_PORT}, the aglink desktop app on ${DESKTOP_PORT}),
-// which reads it out when voice is on. Never fails the turn.
+// which reads it out when voice is on. Never fails the turn. entrypoint says
+// which Claude Code ran it (claude-vscode for VS Code's).
 let d = "";
 let left = 2;
 const done = () => process.exit(0);
 setTimeout(done, 3000);
 process.stdin.on("data", (c) => (d += c)).on("end", () => {
+  try { const h = JSON.parse(d); h.entrypoint = process.env.CLAUDE_CODE_ENTRYPOINT || ""; d = JSON.stringify(h); } catch {}
   for (const port of [${STANDALONE_PORT}, ${DESKTOP_PORT}]) {
     const r = require("http").request(
       { host: "127.0.0.1", port, path: port === ${DESKTOP_PORT} ? "/vscode/stop" : "/stop", method: "POST", headers: { "Content-Type": "application/json" }, timeout: 1500 },
