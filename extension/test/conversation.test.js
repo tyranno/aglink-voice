@@ -1,0 +1,168 @@
+"use strict";
+const test = require("node:test");
+const assert = require("node:assert");
+const { EventEmitter } = require("events");
+const { Conversation } = require("../core/conversation");
+const A = require("../core/audio");
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const tick = () => new Promise((r) => setImmediate(r));
+
+// FakeEngine answers like the engine: transcribe gives what is "said" (the
+// same for every look at the clip), embed the set voice, tts a short clip;
+// play takes a moment.
+class FakeEngine extends EventEmitter {
+  constructor() {
+    super();
+    this.whisper = "gpu";
+    this.calls = [];
+    this.text = "";
+    this.embedding = null;
+  }
+  async call(op, args = {}) {
+    this.calls.push({ op, ...args });
+    switch (op) {
+      case "transcribe":
+        return { ok: true, text: this.text };
+      case "embed":
+        return { ok: true, embedding: this.embedding };
+      case "tts":
+        return { ok: true, wav: A.encodeWav(new Float32Array(1600).fill(0.05)).toString("base64") };
+      case "play":
+        await sleep(5);
+        return { ok: true };
+      default:
+        return { ok: true };
+    }
+  }
+  ops(op) {
+    return this.calls.filter((c) => c.op === op);
+  }
+}
+
+function frame(amp) {
+  const b = Buffer.alloc(1600);
+  for (let i = 0; i < 800; i++) b.writeInt16LE(Math.round(Math.sin(i / 3) * amp * 32767), i * 2);
+  return b.toString("base64");
+}
+
+function setup({ settings: over = {}, store: init = {} } = {}) {
+  let clock = 1_000_000;
+  const engine = new FakeEngine();
+  const values = { voice: "M2", speed: 0.98, speakerMin: 0.4, listenMode: "wake", wakeIdleMin: 3, summary: true, wakeNames: [], wakeDefault: true, textOnly: false, barge: false, ...over };
+  const kept = { ...init };
+  const sent = [];
+  const conv = new Conversation({
+    engine,
+    settings: { get: () => ({ ...values }), set: async (p) => Object.assign(values, p) },
+    store: { get: (k) => kept[k] ?? null, set: (k, v) => (kept[k] = v) },
+    send: async (text) => {
+      sent.push(text);
+      return { ok: true };
+    },
+    now: () => clock,
+  });
+  // feed sends ms of mic audio, 50 ms at a time, letting the checks it starts run.
+  async function feed(amp, ms) {
+    for (let t = 0; t < ms; t += 50) {
+      clock += 50;
+      engine.emit("mic", { pcm: frame(amp) });
+      await tick();
+    }
+  }
+  async function until(cond, what, ms = 2000) {
+    const end = Date.now() + ms;
+    while (!cond()) {
+      if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+      await sleep(5);
+    }
+  }
+  return { conv, engine, values, kept, sent, feed, until };
+}
+
+test("the wake word starts a conversation, the request is sent, the answer read and 그만 ends it", async () => {
+  const { conv, engine, sent, feed, until } = setup();
+  await conv.start();
+  assert.strictEqual(conv.state().phase, "wake");
+
+  engine.text = "아글링크야, 오늘 할 일 정리해 줘.";
+  await feed(0.001, 500); // the room
+  await feed(0.2, 800); // "아글링크야, …"
+  await feed(0.001, 700);
+  await until(() => sent.length === 1, "the request");
+  assert.deepStrictEqual(sent, ["오늘 할 일 정리해 줘."]);
+  assert.ok(conv.conv);
+  assert.strictEqual(engine.ops("play").length, 1, "the chime");
+  assert.ok(conv.awaiting, "waits for the answer");
+
+  // Claude Code's answer: read as a short summary, then the mic opens again.
+  assert.ok(conv.onReply("네.\n\n할 일을 정리했어요.\n\n- 보고서 쓰기\n- 회의 준비\n\n```js\ncode()\n```"));
+  await until(() => !conv.speaking && conv.phase === "listening", "the mic after the reading");
+  const read = engine.ops("tts").map((c) => c.text).join(" ");
+  assert.match(read, /할 일을 정리했어요/);
+  assert.match(read, /보고서 쓰기/);
+  assert.doesNotMatch(read, /code/);
+  assert.ok(engine.ops("tts").every((c) => c.voice === "M2" && c.speed === 0.98));
+
+  engine.text = "그만";
+  await feed(0.001, 500);
+  await feed(0.2, 600);
+  await feed(0.001, 2400);
+  await until(() => !conv.conv, "the end of the conversation");
+  assert.strictEqual(conv.state().phase === "wake" || conv.state().phase === "note", true);
+  assert.strictEqual(sent.length, 1, "그만 is not sent");
+  conv.stop();
+});
+
+test("another voice is not sent once a voice is enrolled", async () => {
+  const me = A.normalize([1, 0, 0, 0]);
+  const { conv, engine, sent, feed, until } = setup({ settings: { listenMode: "always" }, store: { speaker: { base: me, ref: me } } });
+  await conv.start();
+  assert.ok(conv.conv);
+  engine.embedding = [0, 1, 0, 0]; // someone else
+  engine.text = "저녁 뭐 먹을까";
+  await feed(0.001, 500);
+  await feed(0.2, 1500);
+  await feed(0.001, 2400);
+  await until(() => engine.ops("transcribe").length >= 1 && conv.phase === "listening", "the next listening");
+  await sleep(100);
+  assert.deepStrictEqual(sent, []);
+  assert.match(conv.flashText, /다른 목소리/);
+
+  engine.embedding = [0.9, 0.1, 0, 0]; // the user
+  engine.text = "테스트 돌려 줘";
+  await feed(0.001, 500);
+  await feed(0.2, 1500);
+  await feed(0.001, 2400);
+  await until(() => sent.length === 1, "the user's request");
+  assert.deepStrictEqual(sent, ["테스트 돌려 줘"]);
+  conv.stop();
+});
+
+test("a voice command changes the setting instead of going to Claude Code", async () => {
+  const { conv, engine, values, sent, feed, until } = setup({ settings: { listenMode: "always" } });
+  await conv.start();
+  engine.text = "여자 삼 번 목소리로 바꿔 줘";
+  await feed(0.001, 500);
+  await feed(0.2, 1000);
+  await feed(0.001, 2400);
+  await until(() => engine.ops("tts").length > 0, "the spoken confirmation");
+  assert.strictEqual(values.voice, "F3");
+  assert.deepStrictEqual(sent, []);
+  assert.strictEqual(engine.ops("tts")[0].voice, "F3");
+  assert.match(engine.ops("tts")[0].text, /여자 3번 목소리로 바꿨어요/);
+  conv.stop();
+});
+
+test("a stop for an older reading never cuts the newer one", async () => {
+  const { conv, engine } = setup({ settings: { listenMode: "always" } });
+  await conv.start();
+  const g = conv.gen;
+  conv.stopSpeaking();
+  const stop = engine.ops("stop").pop();
+  assert.strictEqual(stop.gen, g);
+  await conv.say("안녕하세요.");
+  const play = engine.ops("play").pop();
+  assert.ok(play.gen > stop.gen);
+  conv.stop();
+});

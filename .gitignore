@@ -1,0 +1,19 @@
+# Build output
+engine/bin/
+engine/obj/
+*.vsix
+dist/
+
+# Models and engines are large and come from their own releases (see docs/plan.md)
+*.onnx
+*.bin
+models/
+whisper/
+
+# Local state
+.vs/
+.vscode/
+*.user
+*.log
+node_modules/
+Thumbs.db
