@@ -29,17 +29,19 @@ const LIST_ITEM_RE = /^[ ]{0,1}([-*+]|\d+[.)])\s/;
 const MIN_GIST_CHARS = 40; // a bare "네." opening pulls in the next paragraph
 const TTS_VOICES = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"]; // Supertonic: male, female
 const MAX_WAKE_NAMES = 5;
+const MAX_NAME_LETTERS = 10; // "HeyJarvis" fits; spaces are left out
 
 function clamp(v, [lo, hi]) {
   return Math.min(hi, Math.max(lo, v));
 }
 
-// cleanWakeNames keeps the user's own wake names: trimmed, 2–8 letters, no repeats.
-function cleanWakeNames(list) {
+// cleanWakeNames keeps the user's own wake names: trimmed, 2–10 letters, no
+// repeats. End words ("끝", "됐어") may be a single letter: minLetters 1.
+function cleanWakeNames(list, minLetters = 2) {
   const out = [];
   for (const n of Array.isArray(list) ? list : []) {
     const name = String(n || "").replace(/[\s,.!?~"“”']/g, "");
-    if (name.length >= 2 && name.length <= 8 && !out.includes(name)) out.push(name);
+    if (name.length >= minLetters && name.length <= MAX_NAME_LETTERS && !out.includes(name)) out.push(name);
   }
   return out.slice(0, MAX_WAKE_NAMES);
 }
@@ -357,13 +359,13 @@ function editDistance(a, b) {
 // matchWakeName finds a user-set name opening text, written a little
 // differently or not; it returns where the name ends in text, or -1. Short
 // names must come out exactly: one letter off "아그라" is already "아그래".
-function matchWakeName(text, name) {
+function matchWakeName(text, name, maxLead = WAKE_MAX_LEAD) {
   const letters = []; // [char, index in text] with spaces and marks left out
   for (let i = 0; i < text.length; i++) if (/[\p{L}\p{N}]/u.test(text[i])) letters.push([text[i], i]);
   const want = jamo(name);
   const allowed = Math.floor((want.length - 1) / 6);
   let best = null;
-  for (let from = 0; from <= WAKE_MAX_LEAD && from < letters.length; from++) {
+  for (let from = 0; from <= maxLead && from < letters.length; from++) {
     for (const len of [name.length, name.length - 1, name.length + 1]) {
       if (len < 1 || from + len > letters.length) continue;
       const d = editDistance(jamo(letters.slice(from, from + len).map(([c]) => c).join("")), want);
@@ -387,6 +389,23 @@ function wakeMatch(text, { wakeDefault = true, wakeNames = [] } = {}) {
     if (end >= 0) return end;
   }
   return -1;
+}
+
+// What may follow a user's own end word: "끝이야", "됐어요", "스톱해 줘".
+const STOP_TAIL_RE = /^[\s,.!?~]*(이야|야|이요|요|해|해요|하자|할게|할래|해\s*줘|해\s*주세요)?[\s,.!?~]*$/;
+
+// stopMatch: the whole sentence is a word that ends the conversation — "그만"
+// and its kind, or one of the user's own (written a little differently or
+// not, but nothing before it: "안 끝" is not "끝").
+function stopMatch(text, { stopDefault = true, stopWords = [] } = {}) {
+  const t = String(text || "").trim();
+  if ((stopDefault || !stopWords.length) && CONV_STOP_RE.test(t)) return true;
+  if (!t || t.length > MAX_COMMAND_CHARS) return false;
+  for (const word of stopWords) {
+    const end = matchWakeName(t, word, 0);
+    if (end >= 0 && STOP_TAIL_RE.test(t.slice(end))) return true;
+  }
+  return false;
 }
 
 // wakeNameLabel is how the wake name is said in replies: the user's own first.
@@ -454,4 +473,5 @@ module.exports = {
   matchWakeName,
   wakeMatch,
   wakeNameLabel,
+  stopMatch,
 };

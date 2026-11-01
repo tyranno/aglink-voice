@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { TTS_VOICES, voiceLabel, cleanWakeNames, MAX_WAKE_NAMES } = require("./core/text");
 
 const SECTION = "aglinkVoice";
-const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "source", "enginePath", "engineRoot"];
+const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "source", "enginePath", "engineRoot"];
 
 let panel = null;
 
@@ -45,6 +45,7 @@ function openSettings(vscode, host) {
             if (!KEYS.includes(m.key)) break;
             let v = m.value;
             if (m.key === "wakeNames") v = cleanWakeNames(String(v).split(/[,，]/)).slice(0, MAX_WAKE_NAMES);
+            if (m.key === "stopWords") v = cleanWakeNames(String(v).split(/[,，]/), 1).slice(0, MAX_WAKE_NAMES);
             if ((m.key === "enginePath" || m.key === "engineRoot") && !String(v).trim()) v = undefined; // back to where the setup put it
             await cfg().update(m.key, v, vscode.ConfigurationTarget.Global);
             post(); // a value cleaned up (wake names) goes back to the form
@@ -148,8 +149,8 @@ function html(nonce) {
 <h2>듣는 방식</h2>
 <div class="row">
   <label class="radio"><input type="radio" name="listenMode" value="wake"><span><b>호출어로 시작</b><br><span class="desc">음성을 켜 두면 "아글링크" 라고 부를 때 대화가 시작돼요. 한동안 말이 없거나 "그만" 하면 다시 부를 때까지 기다려요.</span></span></label>
-  <label class="radio"><input type="radio" name="listenMode" value="always"><span><b>켜면 바로 대화</b><br><span class="desc">음성을 켜면 부르지 않아도 바로 들어요. "그만" 하면 호출어를 기다려요.</span></span></label>
-  <label class="radio"><input type="radio" name="listenMode" value="manual"><span><b>켤 때만 듣기</b><br><span class="desc">음성을 켜면 바로 듣고, "그만" 하면 음성이 꺼져요. 호출어는 쓰지 않아요.</span></span></label>
+  <label class="radio"><input type="radio" name="listenMode" value="always"><span><b>켜면 바로 대화</b><br><span class="desc">음성을 켜면 부르지 않아도 바로 들어요. 끝내는 말("그만")을 하면 호출어를 기다려요.</span></span></label>
+  <label class="radio"><input type="radio" name="listenMode" value="manual"><span><b>켤 때만 듣기</b><br><span class="desc">음성을 켜면 바로 듣고, 끝내는 말("그만")을 하면 음성이 꺼져요. 호출어는 쓰지 않아요.</span></span></label>
 </div>
 <div class="row">
   <label class="check"><input type="checkbox" id="wakeDefault"><span><b>"아글링크" 로 불러도 깨어나기</b><br><span class="desc">끄면 아래에 정한 이름으로만 깨어나요.</span></span></label>
@@ -157,7 +158,15 @@ function html(nonce) {
 <div class="row">
   <label class="title" for="wakeNames">다른 부를 이름</label>
   <input type="text" id="wakeNames" placeholder="예: 자비스, 비서야">
-  <p class="desc">"아글링크" 말고도 부를 이름이에요. 쉼표로 나눠서 5개까지, 한 이름은 2~8글자로 적어 주세요.</p>
+  <p class="desc">"아글링크" 말고도 부를 이름이에요. 쉼표로 나눠서 5개까지, 한 이름은 2~10글자로 적어 주세요. 말은 한국어로 받아 적으니, 영어 이름은 들리는 대로 한글로도 함께 적어 주세요 (예: Jarvis, 자비스).</p>
+</div>
+<div class="row">
+  <label class="check"><input type="checkbox" id="stopDefault"><span><b>"그만" 으로도 끝내기</b><br><span class="desc">"그만", "그만해", "대화 끝", "종료" 라고 하면 대화를 끝내요. 끄면 아래에 정한 말로만 끝나요.</span></span></label>
+</div>
+<div class="row">
+  <label class="title" for="stopWords">다른 끝내는 말</label>
+  <input type="text" id="stopWords" placeholder="예: 됐어, 수고했어, 끝">
+  <p class="desc">대화를 끝낼 내 말이에요. 쉼표로 나눠서 5개까지, 1~10글자로 적어 주세요. 그 말만 했을 때 끝나요 ("끝이야", "됐어요" 처럼 끝에 붙는 말은 괜찮아요). 질문 속에 섞여 나오면 끝나지 않아요.</p>
 </div>
 <div class="row">
   <label class="title" for="wakeIdleMin">말이 없을 때 대화 끝내기</label>
@@ -248,10 +257,10 @@ function html(nonce) {
   $("speakerMin").addEventListener("input", (e) => ($("speakerMinValue").textContent = fmt(e.target.value, 2)));
   $("speakerMin").addEventListener("change", (e) => set("speakerMin", Number(e.target.value)));
   $("wakeIdleMin").addEventListener("change", (e) => set("wakeIdleMin", Number(e.target.value)));
-  for (const id of ["wakeDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).addEventListener("change", (e) => set(id, e.target.checked));
+  for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).addEventListener("change", (e) => set(id, e.target.checked));
   for (const name of ["listenMode", "source"])
     for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.addEventListener("change", (e) => e.target.checked && set(name, e.target.value));
-  for (const id of ["wakeNames", "enginePath", "engineRoot"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
+  for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
   for (const id of ["toggle", "preview", "enroll", "unenroll", "native"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
 
   window.addEventListener("message", ({ data: m }) => {
@@ -263,12 +272,12 @@ function html(nonce) {
     $("speakerMin").value = v.speakerMin;
     $("speakerMinValue").textContent = fmt(v.speakerMin, 2);
     $("wakeIdleMin").value = String(v.wakeIdleMin);
-    for (const id of ["wakeDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).checked = !!v[id];
+    for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).checked = !!v[id];
     for (const name of ["listenMode", "source"])
       for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.checked = r.value === v[name];
-    for (const id of ["wakeNames", "enginePath", "engineRoot"]) {
+    for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot"]) {
       if (document.activeElement === $(id)) continue; // not under the cursor
-      $(id).value = id === "wakeNames" ? (v.wakeNames || []).join(", ") : v[id] || "";
+      $(id).value = Array.isArray(v[id]) ? v[id].join(", ") : v[id] || "";
     }
     $("onState").textContent = m.on ? "음성 켜짐" : "음성 꺼짐";
     $("toggle").textContent = m.on ? "음성 대화 끄기" : "음성 대화 켜기";

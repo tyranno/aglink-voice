@@ -46,3 +46,17 @@ test("isEcho tells our own reading heard back from the user's words", () => {
   assert.ok(!T.isEcho("그럼 배포해 줘", reply));
   assert.ok(T.isEcho("엠투 목소리", "M2 목소리로 바꿨어요"));
 });
+
+test("the user's own end words end the conversation, alone or with a short tail", () => {
+  const s = { stopDefault: false, stopWords: ["됐어", "끝", "Bye"] };
+  for (const t of ["됐어", "됐어요.", "끝", "끝이야!", "bye"]) assert.ok(T.stopMatch(t, s), t);
+  for (const t of ["그만", "안 끝", "끝까지 읽어 줘", "그거 됐어 그럼 다음 거 해 줘", "됐어 이제 커밋해 줘"]) assert.ok(!T.stopMatch(t, s), t);
+  assert.ok(T.stopMatch("그만", { stopDefault: true, stopWords: ["끝"] }));
+  assert.ok(T.stopMatch("그만해", { stopDefault: false, stopWords: [] }), "never left without a way to end");
+  assert.deepStrictEqual(T.cleanWakeNames(["끝", " Hey Jarvis ", "자비스"], 1), ["끝", "HeyJarvis", "자비스"]);
+});
+
+test("wake names in another language", () => {
+  assert.ok(T.wakeMatch("Hey Jarvis, 오늘 일정", { wakeDefault: false, wakeNames: ["HeyJarvis"] }) >= 0);
+  assert.ok(T.wakeMatch("자비스 오늘 일정", { wakeDefault: false, wakeNames: ["Jarvis", "자비스"] }) >= 0);
+});

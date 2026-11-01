@@ -21,11 +21,11 @@ const http = require("http");
 const path = require("path");
 const { Engine } = require("./core/engine");
 const { Conversation } = require("./core/conversation");
-const { TTS_VOICES, voiceLabel } = require("./core/text");
+const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
 const { STANDALONE_PORT, ensureStopHook } = require("./hook");
 
 const SECTION = "aglinkVoice";
-const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "textOnly", "readTyped", "barge"];
+const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge"];
 const READER_IDLE_MS = 10 * 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -44,6 +44,8 @@ function readSettings(cfg) {
   if (!TTS_VOICES.includes(s.voice)) s.voice = "M2";
   if (!Array.isArray(s.wakeNames)) s.wakeNames = [];
   if (!s.wakeDefault && !s.wakeNames.length) s.wakeDefault = true; // always some name to wake on
+  s.stopWords = cleanWakeNames(s.stopWords, 1);
+  if (!s.stopDefault && !s.stopWords.length) s.stopDefault = true; // always some word to end on
   return s;
 }
 

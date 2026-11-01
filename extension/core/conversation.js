@@ -74,7 +74,7 @@ const quote = (text, n = 40) => {
 class Conversation extends EventEmitter {
   // engine: Engine (core/engine.js) or a stand-in with call() and on().
   // settings: get() → {voice, speed, speakerMin, listenMode, wakeIdleMin,
-  //   summary, wakeNames, wakeDefault, textOnly, readTyped, barge}; set(patch).
+  //   summary, wakeNames, wakeDefault, stopWords, stopDefault, textOnly, readTyped, barge}; set(patch).
   // store: get(key) / set(key, value) for what is learned (the enrolled
   //   voice, the user's level, the room's echo gain), kept across restarts.
   // send(text) → Promise<{ok, error}>: hands the words to Claude Code.
@@ -514,7 +514,7 @@ class Conversation extends EventEmitter {
         this.stopSpeaking();
         return;
       }
-      if (T.CONV_STOP_RE.test(text)) {
+      if (T.stopMatch(text, this.s)) {
         this.log(`barge-in stop ${quote(text)}`);
         this.endConversation("음성 대화를 끝냈어요");
         return;
@@ -585,7 +585,7 @@ class Conversation extends EventEmitter {
       // for the echo: the user often says back words the reply just used.
       const tail = rec && rec.firstSpeechAt - this.readingEndedAt < ECHO_TAIL_MS;
       const trusted = score >= 0 && score >= this.s.speakerMin + T.ECHO_TRUST_MARGIN;
-      if (heard && this.replyText && !trusted && !T.parseCommand(heard) && !T.CONV_STOP_RE.test(heard)) {
+      if (heard && this.replyText && !trusted && !T.parseCommand(heard) && !T.stopMatch(heard, this.s)) {
         const thr = tail ? 0.4 : T.ECHO_OVERLAP;
         const kept = T.sentencesOf(heard).filter((x) => !((tail || T.normalizeForEcho(x).length >= 6) && T.isEcho(x, this.replyText, thr)));
         const rest = kept.join("").trim();
@@ -597,7 +597,7 @@ class Conversation extends EventEmitter {
         relisten = true;
         return;
       }
-      if (T.CONV_STOP_RE.test(text)) {
+      if (T.stopMatch(text, this.s)) {
         this.log("stop");
         this.endConversation("음성 대화를 끝냈어요");
         return;

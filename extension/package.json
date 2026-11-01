@@ -2,7 +2,7 @@
   "name": "aglink-voice",
   "displayName": "aglink 음성 — Claude Code 음성 대화",
   "description": "Claude Code 에 말로 묻고 답을 소리로 들어요. 받아쓰기(Whisper), 읽어 주기(Supertonic 목소리 10개), 등록한 목소리만 받기, \"아글링크\" 호출어가 모두 이 PC 안에서 돌아요.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "aglink",
   "private": true,
   "engines": {
@@ -110,9 +110,9 @@
             "manual"
           ],
           "enumDescriptions": [
-            "호출어로 시작: 음성을 켜 두면 \"아글링크\" 라고 부를 때 대화가 시작돼요. 한동안 말이 없거나 \"그만\" 하면 다시 기다려요.",
-            "켜면 바로 대화: 부르지 않아도 바로 들어요. \"그만\" 하면 호출어를 기다려요.",
-            "켤 때만 듣기: 켜면 바로 듣고, \"그만\" 하면 음성이 꺼져요."
+            "호출어로 시작: 음성을 켜 두면 \"아글링크\" 라고 부를 때 대화가 시작돼요. 한동안 말이 없거나 끝내는 말(\"그만\")을 하면 다시 기다려요.",
+            "켜면 바로 대화: 부르지 않아도 바로 들어요. 끝내는 말(\"그만\")을 하면 호출어를 기다려요.",
+            "켤 때만 듣기: 켜면 바로 듣고, 끝내는 말(\"그만\")을 하면 음성이 꺼져요."
           ],
           "order": 2,
           "markdownDescription": "음성을 켰을 때 언제부터 들을지예요."
@@ -145,13 +145,29 @@
           "default": [],
           "maxItems": 5,
           "order": 4,
-          "markdownDescription": "\"아글링크\" 말고도 부를 이름이에요 (한 이름 2~8글자, 5개까지)."
+          "markdownDescription": "\"아글링크\" 말고도 부를 이름이에요 (한 이름 2~10글자, 5개까지). 영어 이름은 들리는 대로 한글로도 함께 적어 주세요 (예: Jarvis, 자비스)."
         },
         "aglinkVoice.wakeDefault": {
           "type": "boolean",
           "default": true,
           "order": 5,
           "markdownDescription": "\"아글링크\" 로 불러도 깨어나요. 끄면 위에 정한 이름으로만 깨어나요."
+        },
+        "aglinkVoice.stopWords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "maxItems": 5,
+          "order": 5,
+          "markdownDescription": "대화를 끝낼 내 말이에요 (한 말 1~10글자, 5개까지). 그 말만 했을 때 끝나요. 예: 됐어, 수고했어, 끝."
+        },
+        "aglinkVoice.stopDefault": {
+          "type": "boolean",
+          "default": true,
+          "order": 5,
+          "markdownDescription": "\"그만\", \"그만해\", \"대화 끝\", \"종료\" 로도 대화를 끝내요. 끄면 위에 정한 말로만 끝나요."
         },
         "aglinkVoice.summary": {
           "type": "boolean",
