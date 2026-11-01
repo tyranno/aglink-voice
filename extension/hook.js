@@ -6,6 +6,7 @@
 "use strict";
 
 const fs = require("fs");
+const { spawnSync } = require("child_process");
 const os = require("os");
 const path = require("path");
 
@@ -36,25 +37,60 @@ process.stdin.on("data", (c) => (d += c)).on("end", () => {
 });
 `;
 
+// The same for PCs without Node.js (a company PC with only VS Code and Claude
+// Code): Windows PowerShell is always there. Slower to start, so only then.
+const HOOK_SCRIPT_PS = `# ${HOOK_MARK}: hands Claude Code's finished turn to the aglink voice
+# (the VS Code extension on ${STANDALONE_PORT}, the aglink desktop app on ${DESKTOP_PORT}).
+# Never fails the turn.
+$ErrorActionPreference = 'SilentlyContinue'
+$ms = New-Object IO.MemoryStream
+[Console]::OpenStandardInput().CopyTo($ms)
+$body = [Text.Encoding]::UTF8.GetString($ms.ToArray()).Trim()
+$ep = $env:CLAUDE_CODE_ENTRYPOINT -replace '[^A-Za-z0-9_-]', ''
+if ($body.StartsWith('{')) {
+  $rest = $body.Substring(1).TrimStart()
+  $body = '{"entrypoint":"' + $ep + '"' + $(if ($rest.StartsWith('}')) { '' } else { ',' }) + $rest
+}
+$bytes = [Text.Encoding]::UTF8.GetBytes($body)
+foreach ($u in 'http://127.0.0.1:${STANDALONE_PORT}/stop', 'http://127.0.0.1:${DESKTOP_PORT}/vscode/stop') {
+  try { Invoke-WebRequest -Uri $u -Method Post -Body $bytes -ContentType 'application/json' -UseBasicParsing -TimeoutSec 2 | Out-Null } catch {}
+}
+exit 0
+`;
+
+function hasNode() {
+  try {
+    return spawnSync(process.platform === "win32" ? "where" : "which", ["node"], { windowsHide: true }).status === 0;
+  } catch {
+    return false;
+  }
+}
+
 function hookDir(home = os.homedir()) {
   return process.env.AGLINK_VOICE_HOME || path.join(home, ".aglink-voice");
 }
 
 // ensureStopHook installs the hook script and adds it to Claude Code's user
 // settings once; other settings and hooks are left as they are. aglink-vscode's
-// older desktop-only hook is replaced, so a turn is not reported twice.
-function ensureStopHook(home = os.homedir()) {
+// older desktop-only hook is replaced, so a turn is not reported twice. Without
+// Node.js on the PATH the PowerShell script is used, and ours run the other
+// way (Node.js since installed or removed) is replaced.
+function ensureStopHook(home = os.homedir(), node = hasNode()) {
   const dir = hookDir(home);
-  const script = path.join(dir, `${HOOK_MARK}.js`);
+  const script = path.join(dir, `${HOOK_MARK}.${node ? "js" : "ps1"}`);
+  const text = node ? HOOK_SCRIPT : HOOK_SCRIPT_PS;
   fs.mkdirSync(dir, { recursive: true });
-  if (!fs.existsSync(script) || fs.readFileSync(script, "utf8") !== HOOK_SCRIPT) fs.writeFileSync(script, HOOK_SCRIPT);
+  if (!fs.existsSync(script) || fs.readFileSync(script, "utf8") !== text) fs.writeFileSync(script, text);
+  const fwd = script.replace(/\\/g, "/");
+  const command = node ? `node "${fwd}"` : `powershell -NoProfile -ExecutionPolicy Bypass -File "${fwd}"`;
   const file = path.join(home, ".claude", "settings.json");
   let settings = {};
   if (fs.existsSync(file)) settings = JSON.parse(fs.readFileSync(file, "utf8"));
   const hooks = (settings.hooks = settings.hooks || {});
   const before = JSON.stringify(hooks.Stop || []);
-  const stop = (hooks.Stop || []).filter((h) => !JSON.stringify(h).includes(OLD_HOOK_MARK));
-  if (!JSON.stringify(stop).includes(HOOK_MARK)) stop.push({ hooks: [{ type: "command", command: `node "${script.replace(/\\/g, "/")}"`, timeout: 5 }] });
+  const isOther = (h) => JSON.stringify(h).includes(HOOK_MARK) && !(h.hooks || []).some((x) => x.command === command);
+  const stop = (hooks.Stop || []).filter((h) => !JSON.stringify(h).includes(OLD_HOOK_MARK) && !isOther(h));
+  if (!JSON.stringify(stop).includes(HOOK_MARK)) stop.push({ hooks: [{ type: "command", command, timeout: 5 }] });
   if (JSON.stringify(stop) === before) return false;
   hooks.Stop = stop;
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -62,4 +98,4 @@ function ensureStopHook(home = os.homedir()) {
   return true;
 }
 
-module.exports = { STANDALONE_PORT, DESKTOP_PORT, HOOK_MARK, HOOK_SCRIPT, ensureStopHook, hookDir };
+module.exports = { STANDALONE_PORT, DESKTOP_PORT, HOOK_MARK, HOOK_SCRIPT, HOOK_SCRIPT_PS, ensureStopHook, hookDir };

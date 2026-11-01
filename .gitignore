@@ -17,3 +17,5 @@ whisper/
 *.log
 node_modules/
 Thumbs.db
+
+installer/stage/
