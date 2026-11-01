@@ -33,14 +33,14 @@ The engine's root folder holds `models\` (`ggml-small.bin`, `ecapa.onnx`,
 ## Setup files
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File installeruild.ps1 [-Root <engine root>]
+powershell -NoProfile -ExecutionPolicy Bypass -File installer\build.ps1 [-Root <engine root>]
 ```
 
 builds, in `dist\` (NSIS 3 needed):
 
 - `aglink-voice-setup-<ver>.exe` (~870 MB): engine, models, Whisper on the
   CPU, the extension. Installs for the current user into
-  `%LOCALAPPDATA%glink-voice` without administrator rights, then installs
+  `%LOCALAPPDATA%\aglink-voice` without administrator rights, then installs
   the extension with VS Code's `code`. Uninstall from Windows' app list.
 - `aglink-voice-gpu-<ver>.exe` (~1 GB): Whisper on NVIDIA GPUs, added to an
   installed setup.
