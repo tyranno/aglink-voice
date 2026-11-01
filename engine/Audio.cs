@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Microsoft.ML.OnnxRuntime;
@@ -109,15 +110,23 @@ namespace AglinkVoice
     // Requests are handled in parallel, so each carries the extension's reading
     // number (gen): a stop for reading n cuts n and anything older, and a play
     // of a reading already stopped never starts — whichever arrives first.
+    //
+    // The whole clip goes to Windows at once (PlaySound from memory, as the
+    // desktop app plays): streaming it through WaveOut's small buffers broke
+    // up whenever the next sentence's synthesis had the CPU.
     static class Player
     {
         sealed class Playing
         {
-            public readonly WaveOutEvent Dev = new() { DesiredLatency = 120 };
             public readonly ManualResetEventSlim Done = new(false);
             public volatile bool Stopped;
             public long Gen;
         }
+
+        const uint SND_ASYNC = 0x1, SND_NODEFAULT = 0x2, SND_MEMORY = 0x4;
+
+        [DllImport("winmm.dll", SetLastError = true)]
+        static extern bool PlaySound(IntPtr sound, IntPtr module, uint flags);
 
         static Playing? cur;
         static long stoppedGen = long.MinValue;
@@ -126,25 +135,29 @@ namespace AglinkVoice
         // Play blocks until the reading is over; false if it was stopped.
         public static bool Play(byte[] wav, long gen)
         {
-            using var reader = new WaveFileReader(new MemoryStream(wav));
+            TimeSpan length;
+            using (var reader = new WaveFileReader(new MemoryStream(wav))) length = reader.TotalTime;
             var p = new Playing { Gen = gen };
-            p.Dev.PlaybackStopped += (_, _) => p.Done.Set();
-            p.Dev.Init(reader);
-            lock (mu)
+            var pin = GCHandle.Alloc(wav, GCHandleType.Pinned); // Windows reads it while it plays
+            try
             {
-                if (gen <= stoppedGen)
+                lock (mu)
                 {
-                    p.Dev.Dispose();
-                    return false;
+                    if (gen <= stoppedGen) return false;
+                    StopLocked();
+                    if (!PlaySound(pin.AddrOfPinnedObject(), IntPtr.Zero, SND_MEMORY | SND_ASYNC | SND_NODEFAULT))
+                        throw new InvalidOperationException("재생하지 못했어요");
+                    cur = p;
                 }
-                StopLocked();
-                cur = p;
-                p.Dev.Play();
+                p.Done.Wait(length + TimeSpan.FromMilliseconds(80));
+                lock (mu) if (cur == p) cur = null;
+                return !p.Stopped;
             }
-            p.Done.Wait();
-            lock (mu) if (cur == p) cur = null;
-            p.Dev.Dispose();
-            return !p.Stopped;
+            finally
+            {
+                lock (mu) if (cur == null) PlaySound(IntPtr.Zero, IntPtr.Zero, 0); // nothing still reads the buffer
+                pin.Free();
+            }
         }
 
         public static void Stop(long gen = long.MaxValue)
@@ -160,7 +173,8 @@ namespace AglinkVoice
         {
             if (cur == null) return;
             cur.Stopped = true;
-            cur.Dev.Stop(); // PlaybackStopped releases the waiting Play
+            PlaySound(IntPtr.Zero, IntPtr.Zero, 0);
+            cur.Done.Set(); // releases the waiting Play
             cur = null;
         }
     }
