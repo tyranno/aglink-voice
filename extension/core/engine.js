@@ -8,15 +8,18 @@ const { spawn } = require("child_process");
 const { EventEmitter } = require("events");
 
 class Engine extends EventEmitter {
-  constructor(exe, root, log = () => {}) {
+  // whisper: false starts the engine for reading only; ensureWhisper() adds
+  // recognition later.
+  constructor(exe, root, log = () => {}, { whisper = true } = {}) {
     super();
+    this.withWhisper = whisper;
     this.exe = exe;
     this.root = root;
     this.log = log;
     this.proc = null;
     this.next = 1;
     this.waits = new Map();
-    this.whisper = "starting";
+    this.whisper = whisper ? "starting" : "idle";
   }
 
   // start resolves once the engine has said "ready" (Whisper may still be
@@ -33,7 +36,7 @@ class Engine extends EventEmitter {
       };
       let p;
       try {
-        p = spawn(this.exe, [this.root], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+        p = spawn(this.exe, this.withWhisper ? [this.root] : [this.root, "--no-whisper"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       } catch (e) {
         done(e);
         return;
@@ -93,6 +96,13 @@ class Engine extends EventEmitter {
       this.waits.set(id, { resolve, reject });
       this.proc.stdin.write(JSON.stringify({ id, op, ...args }) + "\n");
     });
+  }
+
+  // ensureWhisper starts recognition in an engine started for reading only.
+  async ensureWhisper() {
+    if (this.whisper !== "idle") return;
+    const r = await this.call("whisper");
+    if (this.whisper === "idle") this.whisper = r.whisper;
   }
 
   // stop closes stdin: the engine turns off the mic, playback and Whisper and exits.

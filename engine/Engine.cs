@@ -4,7 +4,8 @@
 // GPU when there is an NVIDIA card), reading (Supertonic), playback, the
 // enrolled-voice embedding (ECAPA, ONNX) and pressing Ctrl+V, Enter in VS Code.
 //
-// The extension starts it and talks JSON lines: requests on stdin carry an
+// The extension starts it (aglink-voice-engine.exe <root> [--no-whisper]; the
+// flag is for reading answers only, Whisper then waits for "whisper") and talks JSON lines: requests on stdin carry an
 // "id" and get one answer line with the same id; "ev" lines are events
 // (mic audio, status). Only one engine runs per user: the mic and the GPU are
 // not shared between VS Code windows.
@@ -12,6 +13,7 @@
 //   {"id":1,"op":"status"}                          → {"id":1,"ok":true,"whisper":"gpu"|"cpu"|"starting"|"off",...}
 //   {"id":2,"op":"tts","text":"…","voice":"M2","speed":1.0}  → {"id":2,"ok":true,"wav":"<base64>"}
 //   {"id":3,"op":"play","wav":"<base64>","gen":7}  → answered when it has played (or was stopped)
+//   {"id":9,"op":"whisper"}                         starts Whisper if the engine was started with --no-whisper
 //   {"id":4,"op":"stop","gen":7}                    stops reading 7 and older (no gen: whatever plays)
 //   {"id":5,"op":"mic","on":true}                   → {"ev":"mic","pcm":"<base64 16 kHz mono s16>"} every 50 ms
 //   {"id":6,"op":"transcribe","wav":"<base64>"}     → {"id":6,"ok":true,"text":"…"}
@@ -49,7 +51,8 @@ namespace AglinkVoice
         {
             stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
             Console.SetOut(Console.Error); // Supertonic's helper prints; answers keep stdout to themselves
-            Root = args.Length > 0 ? args[0] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
+            Root = args.Length > 0 && !args[0].StartsWith("--") ? args[0] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
+            bool readOnly = args.Contains("--no-whisper"); // only reading answers: Whisper waits for "whisper"
 
             using var single = new Mutex(true, @"Local\aglink-voice-engine", out bool first);
             if (!first)
@@ -58,7 +61,7 @@ namespace AglinkVoice
                 return 2;
             }
 
-            Whisper.Start(Path.Combine(Root, "whisper"), Path.Combine(Root, "models", "ggml-small.bin"));
+            if (!readOnly) StartWhisper();
             Send(new { ev = "ready" });
 
             var stdin = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));
@@ -84,6 +87,8 @@ namespace AglinkVoice
             Whisper.Stop();
             return 0;
         }
+
+        static void StartWhisper() => Whisper.Start(Path.Combine(Root, "whisper"), Path.Combine(Root, "models", "ggml-small.bin"));
 
         static void Handle(JsonObject req)
         {
@@ -111,6 +116,10 @@ namespace AglinkVoice
                             Send(new { id, ok = true, stopped = !played });
                             break;
                         }
+                    case "whisper":
+                        StartWhisper();
+                        Send(new { id, ok = true, whisper = Whisper.State });
+                        break;
                     case "stop":
                         Player.Stop(req["gen"]?.GetValue<long>() ?? long.MaxValue);
                         Send(new { id, ok = true });

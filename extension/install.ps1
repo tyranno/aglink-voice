@@ -37,7 +37,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $here = $PSScriptRoot
 $pkg = Get-Content -Raw -Encoding UTF8 (Join-Path $here 'package.json') | ConvertFrom-Json
 $version = $pkg.version
-$files = @('package.json', 'extension.js', 'desktoplink.js', 'standalone.js', 'hook.js', 'core/text.js', 'core/audio.js', 'core/engine.js', 'core/conversation.js', 'README.md')
+$files = @('package.json', 'extension.js', 'desktoplink.js', 'standalone.js', 'settingsPanel.js', 'hook.js', 'core/text.js', 'core/audio.js', 'core/engine.js', 'core/conversation.js', 'README.md')
 
 $out = Join-Path $here "$($pkg.name)-$version.vsix"
 if (Test-Path $out) { Remove-Item $out -Force }

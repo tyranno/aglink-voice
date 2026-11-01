@@ -53,13 +53,13 @@ test("the hook script hands the turn to the extension and exits", async () => {
   try {
     const started = Date.now();
     const code = await new Promise((resolve) => {
-      const p = spawn(process.execPath, [script], { stdio: ["pipe", "ignore", "ignore"] });
+      const p = spawn(process.execPath, [script], { stdio: ["pipe", "ignore", "ignore"], env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "claude-vscode" } });
       p.on("exit", resolve);
       p.stdin.end(JSON.stringify({ last_assistant_message: "다 고쳤어요." }));
     });
     assert.strictEqual(code, 0);
     assert.ok(Date.now() - started < 2500, "does not wait for the timeout");
-    assert.deepStrictEqual(got, { url: "/stop", body: { last_assistant_message: "다 고쳤어요." } });
+    assert.deepStrictEqual(got, { url: "/stop", body: { last_assistant_message: "다 고쳤어요.", entrypoint: "claude-vscode" } }); // which Claude Code ran it
   } finally {
     srv.close();
     fs.rmSync(dir, { recursive: true, force: true });

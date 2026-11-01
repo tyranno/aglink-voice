@@ -6,11 +6,18 @@
 // - otherwise the engine installed with this extension (standalone.js), with
 //   the settings under aglinkVoice.* here.
 // aglinkVoice.source picks one for good; "auto" prefers the desktop app.
+//
+// The button opens a menu of the everyday settings; settingsPanel.js is the
+// full settings screen.
 "use strict";
 
 const vscode = require("vscode");
 const { createVoice } = require("./desktoplink");
 const { createStandalone } = require("./standalone");
+const { openSettings } = require("./settingsPanel");
+const { TTS_VOICES, voiceLabel } = require("./core/text");
+
+const SPEEDS = [0.8, 0.9, 0.98, 1.1, 1.2, 1.35, 1.5];
 
 let disposeAll = () => {};
 
@@ -18,11 +25,12 @@ function activate(context) {
   const out = vscode.window.createOutputChannel("aglink 음성");
   const log = (m) => out.appendLine(`[${new Date().toLocaleTimeString()}] ${m}`);
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 1000);
-  item.command = "aglinkVoice.toggle";
+  item.command = "aglinkVoice.menu";
 
   let desktop = null;
   let standalone = null;
-  const source = () => vscode.workspace.getConfiguration("aglinkVoice").get("source") || "auto";
+  const cfg = () => vscode.workspace.getConfiguration("aglinkVoice");
+  const source = () => cfg().get("source") || "auto";
   // mode: which of the two the button is for right now. One that is on keeps it.
   const mode = () => {
     if (standalone && standalone.on) return "standalone";
@@ -33,10 +41,11 @@ function activate(context) {
   };
   const render = () => (mode() === "desktop" ? desktop : standalone)?.render();
 
-  standalone = createStandalone(vscode, context, log, { item, active: () => mode() === "standalone" });
+  standalone = createStandalone(vscode, context, log, { item, active: () => mode() === "standalone", elsewhere: () => !!(desktop && desktop.on && desktop.linked) });
   desktop = createVoice(vscode, log, { item, active: () => mode() === "desktop", onLink: render });
   render();
 
+  const toggle = () => (mode() === "desktop" ? desktop.toggle() : standalone.toggle());
   const standaloneOnly = (fn) => async () => {
     if (mode() === "desktop") {
       vscode.window.showInformationMessage("aglink 데스크톱 앱의 음성을 쓰는 중이에요. 목소리 등록과 설정은 데스크톱 앱에서 해 주세요.");
@@ -44,15 +53,79 @@ function activate(context) {
     }
     await fn();
   };
+  const set = (key, value) => cfg().update(key, value, vscode.ConfigurationTarget.Global);
+
+  const settingsHost = {
+    status: () => ({ on: mode() === "desktop" ? desktop.on : standalone.on, enrolled: standalone.enrolled, desktop: mode() === "desktop" }),
+    onChange: (fn) => standalone.onChange(fn),
+    toggle,
+    preview: standaloneOnly(() => standalone.preview()),
+    enroll: standaloneOnly(() => standalone.enroll()),
+    unenroll: () => standalone.unenroll(),
+  };
+
+  async function pickVoice() {
+    const now = cfg().get("voice");
+    const pick = await vscode.window.showQuickPick(
+      TTS_VOICES.map((v) => ({ label: `${v === now ? "$(check) " : ""}${voiceLabel(v)}`, value: v })),
+      { title: "읽어 주는 목소리", placeHolder: "고르면 그 목소리로 한 번 읽어 줘요" },
+    );
+    if (!pick) return;
+    await set("voice", pick.value);
+    await standalone.preview();
+  }
+
+  async function pickSpeed() {
+    const now = cfg().get("speed");
+    const pick = await vscode.window.showQuickPick(
+      SPEEDS.map((v) => ({ label: `${v === now ? "$(check) " : ""}${v}배`, description: v === 0.98 ? "보통" : v < 0.98 ? "천천히" : "빨리", value: v })),
+      { title: "읽는 빠르기", placeHolder: "1 이 보통이에요. 더 세밀하게는 설정 화면에서 바꿔요" },
+    );
+    if (!pick) return;
+    await set("speed", pick.value);
+    await standalone.preview();
+  }
+
+  // menu: the status bar button. On/off first, then the settings changed most.
+  async function menu() {
+    const on = mode() === "desktop" ? desktop.on : standalone.on;
+    const items = [{ label: on ? "$(mic-filled) 음성 대화 끄기" : "$(mic) 음성 대화 켜기", description: "Ctrl+Alt+V", run: toggle }];
+    if (standalone.speaking) items.push({ label: "$(debug-stop) 읽기 멈추기", run: () => standalone.stopReading() });
+    if (mode() === "desktop") {
+      items.push({ label: "$(info) 데스크톱 앱의 음성을 쓰는 중", description: "설정은 데스크톱 앱에서 바꿔요", run: () => {} });
+    } else {
+      const s = cfg();
+      const onOff = (v) => (v ? "켜짐" : "꺼짐");
+      items.push(
+        { label: "", kind: vscode.QuickPickItemKind.Separator },
+        { label: `$(person) 목소리: ${voiceLabel(s.get("voice") || "M2")}`, run: pickVoice },
+        { label: `$(dashboard) 빠르기: ${s.get("speed")}배`, run: pickSpeed },
+        { label: `$(play) 지금 목소리로 들어 보기`, run: () => standalone.preview() },
+        { label: "", kind: vscode.QuickPickItemKind.Separator },
+        { label: `$(list-flat) 긴 답은 요점만 읽기: ${onOff(s.get("summary"))}`, run: () => set("summary", !s.get("summary")) },
+        { label: `$(file-text) 말로 물어도 답은 글로만: ${onOff(s.get("textOnly"))}`, run: () => set("textOnly", !s.get("textOnly")) },
+        { label: `$(keyboard) 타이핑한 질문 답도 읽기: ${onOff(s.get("readTyped"))}`, run: () => set("readTyped", !s.get("readTyped")) },
+        { label: `$(debug-pause) 읽는 중에 말하면 멈추기: ${onOff(s.get("barge"))}`, run: () => set("barge", !s.get("barge")) },
+      );
+    }
+    items.push({ label: "", kind: vscode.QuickPickItemKind.Separator }, { label: "$(gear) 설정 화면 열기", description: "모든 설정과 설명", run: () => openSettings(vscode, settingsHost) });
+    const pick = await vscode.window.showQuickPick(items, { title: "aglink 음성" });
+    if (pick && pick.run) await pick.run();
+  }
 
   context.subscriptions.push(
     out,
     item,
-    vscode.commands.registerCommand("aglinkVoice.toggle", () => (mode() === "desktop" ? desktop.toggle() : standalone.toggle())),
-    vscode.commands.registerCommand("aglinkVoice.enroll", standaloneOnly(() => standalone.enroll())),
-    vscode.commands.registerCommand("aglinkVoice.preview", standaloneOnly(() => standalone.preview())),
+    vscode.commands.registerCommand("aglinkVoice.toggle", toggle),
+    vscode.commands.registerCommand("aglinkVoice.menu", menu),
+    vscode.commands.registerCommand("aglinkVoice.openSettings", () => openSettings(vscode, settingsHost)),
+    vscode.commands.registerCommand("aglinkVoice.stopReading", () => standalone.stopReading()),
+    vscode.commands.registerCommand("aglinkVoice.enroll", settingsHost.enroll),
+    vscode.commands.registerCommand("aglinkVoice.unenroll", settingsHost.unenroll),
+    vscode.commands.registerCommand("aglinkVoice.preview", settingsHost.preview),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("aglinkVoice")) render();
+      if (e.affectsConfiguration("aglinkVoice.readTyped")) void standalone.syncReadTyped();
     }),
   );
   disposeAll = () => {

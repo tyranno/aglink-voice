@@ -74,7 +74,7 @@ const quote = (text, n = 40) => {
 class Conversation extends EventEmitter {
   // engine: Engine (core/engine.js) or a stand-in with call() and on().
   // settings: get() → {voice, speed, speakerMin, listenMode, wakeIdleMin,
-  //   summary, wakeNames, wakeDefault, textOnly, barge}; set(patch).
+  //   summary, wakeNames, wakeDefault, textOnly, readTyped, barge}; set(patch).
   // store: get(key) / set(key, value) for what is learned (the enrolled
   //   voice, the user's level, the room's echo gain), kept across restarts.
   // send(text) → Promise<{ok, error}>: hands the words to Claude Code.
@@ -199,6 +199,7 @@ class Conversation extends EventEmitter {
   state() {
     let phase = "off";
     let label = "음성 꺼짐";
+    if (!this.on_ && this.speaking) [phase, label] = ["speaking", "답변을 읽는 중"]; // a typed question's answer
     if (this.on_) {
       if (this.problem) [phase, label] = ["problem", this.problem];
       else if (this.flashText) [phase, label] = ["note", this.flashText];
@@ -849,9 +850,23 @@ class Conversation extends EventEmitter {
     }
   }
 
-  speakReply(md) {
+  // readTyped reads the answer to a question typed into Claude Code, when the
+  // readTyped setting asks for it. Voice may be off (the engine then only
+  // reads); with voice on, not over something being heard or awaited.
+  readTyped(md) {
+    const text = String(md || "").trim();
+    const hearing = this.rec && (this.rec.first >= 0 || this.rec.prefix); // an open mic with nothing said yet is no reason to wait
+    if (!text || !this.s.readTyped || this.awaiting || hearing || this.phase === "transcribing" || this.enrolling) return false;
+    this.log("typed question answered");
+    void this.speakReply(text, true);
+    return true;
+  }
+
+  // speakReply reads an answer's summary. textOnly is for answers to spoken
+  // questions; a typed question's answer (typed) is read because readTyped asked.
+  speakReply(md, typed = false) {
     this.lastReply = md;
-    if (this.s.textOnly || this.textOnce) {
+    if (!typed && (this.s.textOnly || this.textOnce)) {
       this.log("answer shown as text only");
       this.flash("📄 답변은 글로만 보여 드려요");
       return;

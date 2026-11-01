@@ -94,7 +94,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
       item.backgroundColor = undefined;
     } else if (on) {
       item.text = "$(mic-filled) 음성 켜짐";
-      item.tooltip = "aglink 데스크톱 음성으로 Claude Code 와 대화 중이에요. 설정은 데스크톱 앱을 따라요. 누르면 꺼요.";
+      item.tooltip = "aglink 데스크톱 음성으로 Claude Code 와 대화 중이에요. 설정은 데스크톱 앱을 따라요. 누르면 메뉴, Ctrl+Alt+V 로 꺼요.";
       item.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
     } else {
       item.text = "$(mic) 음성";

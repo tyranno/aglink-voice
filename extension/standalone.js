@@ -8,7 +8,12 @@
 //   focus, and the engine presses Ctrl+V, Enter in this window — Claude Code
 //   has no way to submit a prompt from outside, so keys are the only way in;
 // - the answer: Claude Code's Stop hook (hook.js) posts each finished turn to
-//   127.0.0.1:STANDALONE_PORT, served here while voice is on.
+//   127.0.0.1:STANDALONE_PORT, served here while voice is on or typed
+//   questions' answers are to be read (readTyped).
+//
+// The engine runs in two ways: with voice on (mic and Whisper), or for
+// reading only (a typed question's answer, a preview) — no mic, no Whisper,
+// and it goes away after READER_IDLE_MS of nothing to read.
 "use strict";
 
 const fs = require("fs");
@@ -20,7 +25,8 @@ const { TTS_VOICES, voiceLabel } = require("./core/text");
 const { STANDALONE_PORT, ensureStopHook } = require("./hook");
 
 const SECTION = "aglinkVoice";
-const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "textOnly", "barge"];
+const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "textOnly", "readTyped", "barge"];
+const READER_IDLE_MS = 10 * 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // enginePaths: where the setup put the engine (%LOCALAPPDATA%\aglink-voice),
@@ -41,7 +47,9 @@ function readSettings(cfg) {
   return s;
 }
 
-function createStandalone(vscode, context, log, { item, active = () => true } = {}) {
+// elsewhere(): the desktop app's voice is on — it reads its own answers, so
+// typed questions' answers are left alone too.
+function createStandalone(vscode, context, log, { item, active = () => true, elsewhere = () => false } = {}) {
   const cfg = () => vscode.workspace.getConfiguration(SECTION);
   const settings = {
     get: () => readSettings(cfg()),
@@ -55,10 +63,15 @@ function createStandalone(vscode, context, log, { item, active = () => true } = 
   };
 
   let engine = null;
-  let conv = null;
+  let conv = null; // made with the engine; started (mic on) only while voice is on
+  let core = null; // the engine starting
   let server = null;
   let starting = null;
+  let readerTimer = null;
   let last = { on: false, phase: "off", label: "음성 꺼짐" };
+  const listeners = new Set(); // the settings panel, told when voice goes on or off
+
+  const voiceOn = () => !!(conv && conv.isOn);
 
   function identity() {
     return { pid: process.ppid, title: vscode.workspace.name || "" }; // the VS Code main process owns the window
@@ -94,20 +107,43 @@ function createStandalone(vscode, context, log, { item, active = () => true } = 
       item.text = "$(loading~spin) 음성 켜는 중";
       item.tooltip = "음성 엔진을 켜는 중이에요";
       item.backgroundColor = undefined;
+    } else if (!st.on && st.phase === "speaking") {
+      item.text = "$(unmute) 답변 읽는 중";
+      item.tooltip = "타이핑한 질문의 답을 읽는 중이에요. 누르면 메뉴에서 멈출 수 있어요.";
+      item.backgroundColor = undefined;
     } else if (!st.on) {
       item.text = "$(mic) 음성";
-      item.tooltip = "음성 대화 켜기 (Ctrl+Alt+V)";
+      item.tooltip = "aglink 음성 — 누르면 메뉴 (켜고 끄기는 Ctrl+Alt+V)";
       item.backgroundColor = undefined;
     } else {
       item.text = `${ICONS[st.phase] || "$(mic)"} ${st.label}`;
       const s = settings.get();
-      item.tooltip = `음성 켜짐 — ${voiceLabel(s.voice)} 목소리, ${s.speed}배, 받아쓰기 ${st.whisper === "gpu" ? "그래픽카드" : st.whisper === "cpu" ? "CPU" : "준비 중"}. 누르면 꺼요.`;
+      item.tooltip = `음성 켜짐 — ${voiceLabel(s.voice)} 목소리, ${s.speed}배, 받아쓰기 ${st.whisper === "gpu" ? "그래픽카드" : st.whisper === "cpu" ? "CPU" : "준비 중"}. 누르면 메뉴, Ctrl+Alt+V 로 꺼요.`;
       item.backgroundColor = st.phase === "problem" ? new vscode.ThemeColor("statusBarItem.errorBackground") : new vscode.ThemeColor("statusBarItem.warningBackground");
     }
     item.show();
   }
 
-  // listen serves the Stop hook's POST /stop while voice is on in this window.
+  function changed() {
+    render();
+    for (const fn of listeners) fn();
+  }
+
+  // ---- the answers: Claude Code's Stop hook posts each finished turn ----
+
+  function onTurn(h) {
+    // Claude Code runs the hook for every session on this PC (the CLI,
+    // aglink's); only VS Code's answers are read.
+    if (h.entrypoint && h.entrypoint !== "claude-vscode") return;
+    const md = h.last_assistant_message;
+    if (!md) return;
+    if (conv && conv.onReply(md)) return; // the answer to what was said
+    if (!settings.get().readTyped || elsewhere()) return;
+    void reader().then((c) => {
+      if (c && c.readTyped(md)) idleLater();
+    });
+  }
+
   function listen() {
     return new Promise((resolve, reject) => {
       const srv = http.createServer((req, res) => {
@@ -126,10 +162,7 @@ function createStandalone(vscode, context, log, { item, active = () => true } = 
           try {
             h = JSON.parse(body);
           } catch {}
-          // Claude Code runs the hook for every session on this PC (the CLI,
-          // aglink's); only VS Code's answers are read.
-          if (h.entrypoint && h.entrypoint !== "claude-vscode") return;
-          if (conv && h.last_assistant_message) conv.onReply(h.last_assistant_message);
+          onTurn(h);
         });
       });
       srv.once("error", reject);
@@ -137,32 +170,52 @@ function createStandalone(vscode, context, log, { item, active = () => true } = 
     });
   }
 
-  async function start() {
-    const { exe, root } = enginePaths(cfg());
-    if (!fs.existsSync(exe)) throw new Error(`음성 엔진이 설치되어 있지 않아요 (${exe}). aglink 음성 설치 파일을 먼저 실행해 주세요.`);
+  async function ensureServer() {
+    if (server) return;
     if (ensureStopHook()) log("voice: Claude Code Stop hook added to ~/.claude/settings.json");
-    engine = new Engine(exe, root, log);
-    engine.on("exit", (code) => {
-      if (!conv) return;
-      log(`voice: engine exited (${code})`);
-      const c = conv;
-      conv = null;
-      c.stop();
-      closeServer();
-      last = { on: false, phase: "off", label: "음성 꺼짐" };
-      render();
-      vscode.window.showWarningMessage("aglink 음성: 음성 엔진이 멈춰서 음성을 껐어요. 다시 켜 주세요.");
-    });
-    await engine.start();
     try {
       server = await listen();
     } catch (e) {
-      engine.stop();
-      engine = null;
       throw new Error(e.code === "EADDRINUSE" ? "다른 VS Code 창에서 음성을 쓰고 있어요." : e.message);
     }
+  }
+
+  function closeServer() {
+    if (server) server.close();
+    server = null;
+  }
+
+  // ---- the engine ----
+
+  // ensureCore starts the engine (and the conversation it serves) if it is not
+  // running; whisper adds recognition to one started for reading only.
+  async function ensureCore(whisper) {
+    if (!engine) {
+      if (!core) core = startCore(whisper);
+      try {
+        await core;
+      } finally {
+        core = null;
+      }
+    }
+    if (whisper && engine) await engine.ensureWhisper();
+  }
+
+  async function startCore(whisper) {
+    const { exe, root } = enginePaths(cfg());
+    if (!fs.existsSync(exe)) throw new Error(`음성 엔진이 설치되어 있지 않아요 (${exe}). aglink 음성 설치 파일을 먼저 실행해 주세요.`);
+    const e = new Engine(exe, root, log, { whisper });
+    e.on("exit", (code) => {
+      if (engine !== e) return;
+      const wasOn = voiceOn();
+      log(`voice: engine exited (${code})`);
+      teardown();
+      if (wasOn) vscode.window.showWarningMessage("aglink 음성: 음성 엔진이 멈춰서 음성을 껐어요. 다시 켜 주세요.");
+    });
+    await e.start();
+    engine = e;
     conv = new Conversation({
-      engine,
+      engine: e,
       settings,
       store,
       send,
@@ -172,30 +225,71 @@ function createStandalone(vscode, context, log, { item, active = () => true } = 
     conv.on("state", (st) => {
       last = st;
       render();
+      if (!st.on && st.phase !== "speaking" && engine === e) idleLater(); // a reading with voice off has ended
     });
     conv.on("off", () => void stop());
+  }
+
+  // teardown stops everything: the conversation, the engine, and the hook
+  // server unless typed questions' answers are still to be read.
+  function teardown() {
+    clearTimeout(readerTimer);
+    readerTimer = null;
+    const c = conv;
+    const e = engine;
+    conv = null;
+    engine = null; // first, so the last state from c.stop() does not start an idle timer
+    if (c) c.stop();
+    if (e) e.stop();
+    if (!settings.get().readTyped) closeServer();
+    last = { on: false, phase: "off", label: "음성 꺼짐" };
+    changed();
+  }
+
+  // reader gives the conversation for reading only, starting the engine
+  // without the mic or Whisper if voice is off.
+  async function reader() {
+    try {
+      await ensureCore(false);
+      return conv;
+    } catch (e) {
+      log(`voice: reading failed: ${e.message}`);
+      return null;
+    }
+  }
+
+  // idleLater stops an engine kept only for reading once it has had nothing to
+  // read for a while.
+  function idleLater() {
+    clearTimeout(readerTimer);
+    readerTimer = null;
+    if (voiceOn() || starting) return;
+    readerTimer = setTimeout(() => {
+      if (!voiceOn() && !starting && !(conv && conv.speaking)) teardown();
+    }, READER_IDLE_MS);
+  }
+
+  // ---- on / off ----
+
+  async function start() {
+    clearTimeout(readerTimer);
+    readerTimer = null;
+    await ensureServer();
+    await ensureCore(true);
     await conv.start();
   }
 
-  function closeServer() {
-    if (server) server.close();
-    server = null;
-  }
-
   async function stop() {
-    const c = conv;
-    conv = null;
-    if (c) c.stop();
-    closeServer();
-    if (engine) engine.stop();
-    engine = null;
-    last = { on: false, phase: "off", label: "음성 꺼짐" };
-    render();
+    if (conv) conv.stop();
+    if (settings.get().readTyped && engine) {
+      idleLater(); // kept a while for typed questions' answers
+      changed();
+    } else teardown();
   }
 
   async function toggle() {
     if (starting) return;
-    if (conv) {
+    if (voiceOn()) {
       await stop();
       return;
     }
@@ -205,39 +299,83 @@ function createStandalone(vscode, context, log, { item, active = () => true } = 
       await starting;
     } catch (e) {
       log(`voice: start failed: ${e.message}`);
+      starting = null;
       await stop();
       vscode.window.showErrorMessage(`aglink 음성: ${e.message}`);
     } finally {
       starting = null;
-      render();
+      changed();
     }
   }
 
   async function ensureOn() {
-    if (!conv) await toggle();
-    return !!conv;
+    if (!voiceOn()) await toggle();
+    return voiceOn();
   }
+
+  // readTyped turned on: the hook server listens from now on (the engine
+  // starts with the first answer); turned off with voice off: all goes.
+  async function syncReadTyped() {
+    if (settings.get().readTyped) {
+      try {
+        await ensureServer();
+      } catch (e) {
+        log(`voice: typed answers will not be read here: ${e.message}`);
+      }
+    } else if (!voiceOn() && !starting) teardown();
+  }
+  void syncReadTyped();
 
   return {
     toggle,
     render,
+    syncReadTyped,
     get on() {
-      return !!conv;
+      return voiceOn();
+    },
+    get speaking() {
+      return !!(conv && conv.speaking);
+    },
+    stopReading() {
+      if (conv) conv.stopSpeaking();
     },
     // enroll records the user's voice (turning voice on for it if need be).
     async enroll() {
       if (!(await ensureOn())) return;
       await conv.enroll();
     },
+    unenroll() {
+      store.set("speaker", null);
+      if (conv) conv.forgetUserLevel();
+      else store.set("userLevel", null);
+      log("voice: speaker enrollment cleared");
+      changed();
+    },
     get enrolled() {
       return !!store.get("speaker");
     },
+    // preview reads a sample in the current voice and speed; voice need not be on.
     async preview() {
-      if (!(await ensureOn())) return;
-      await conv.preview();
+      const c = voiceOn() ? conv : await reader();
+      if (!c) {
+        vscode.window.showErrorMessage("aglink 음성: 음성 엔진을 켜지 못했어요. 출력 창의 'aglink 음성' 기록을 확인해 주세요.");
+        return;
+      }
+      await c.preview();
+      idleLater();
+    },
+    onChange(fn) {
+      listeners.add(fn);
+      return { dispose: () => listeners.delete(fn) };
     },
     dispose() {
-      void stop();
+      clearTimeout(readerTimer);
+      const c = conv;
+      conv = null;
+      if (c) c.stop();
+      if (engine) engine.stop();
+      engine = null;
+      closeServer();
     },
   };
 }

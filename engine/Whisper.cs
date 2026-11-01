@@ -20,10 +20,14 @@ namespace AglinkVoice
         static string baseUrl = "";
         static readonly HttpClient http = new() { Timeout = TimeSpan.FromMinutes(2) };
         static readonly SemaphoreSlim one = new(1, 1);
-        public static volatile string State = "starting"; // starting | gpu | cpu | off
+        public static volatile string State = "idle"; // idle (not asked for) | starting | gpu | cpu | off
+        static int started;
 
+        // Start brings the server up once; later calls do nothing.
         public static void Start(string dir, string model)
         {
+            if (Interlocked.Exchange(ref started, 1) == 1) return;
+            State = "starting";
             Task.Run(() =>
             {
                 bool gpu = NativeLibrary.TryLoad("nvcuda.dll", out var h);
@@ -108,6 +112,7 @@ namespace AglinkVoice
 
         public static string Transcribe(byte[] wav)
         {
+            if (State is "idle") throw new Exception("음성 인식이 꺼져 있어요");
             if (State is "starting") throw new Exception("음성 인식을 준비하고 있어요");
             if (State is "off") throw new Exception("음성 인식을 시작하지 못했어요");
             one.Wait();

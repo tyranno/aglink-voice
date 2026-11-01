@@ -166,3 +166,33 @@ test("a stop for an older reading never cuts the newer one", async () => {
   assert.ok(play.gen > stop.gen);
   conv.stop();
 });
+
+test("a typed question's answer is read only with readTyped, voice off, even with text only", async () => {
+  const off = setup({ settings: { readTyped: false } });
+  assert.strictEqual(off.conv.readTyped("답이에요."), false);
+  assert.strictEqual(off.engine.ops("tts").length, 0);
+
+  const { conv, engine, values, until } = setup({ settings: { readTyped: true, textOnly: true } });
+  assert.strictEqual(conv.isOn, false, "voice stays off: no mic");
+  assert.ok(conv.readTyped("타이핑한 질문의 답이에요."));
+  assert.strictEqual(conv.state().phase, "speaking");
+  await until(() => !conv.speaking, "the reading");
+  assert.match(engine.ops("tts").map((c) => c.text).join(" "), /타이핑한 질문의 답이에요/);
+  assert.strictEqual(engine.ops("mic").length, 0);
+  assert.strictEqual(conv.state().phase, "off");
+
+  values.readTyped = false;
+  assert.strictEqual(conv.readTyped("또 다른 답."), false);
+});
+
+test("with voice on, a typed answer is not read over an answer being awaited", async () => {
+  const { conv, engine, until } = setup({ settings: { listenMode: "always", readTyped: true } });
+  await conv.start();
+  conv.awaiting = setTimeout(() => {}, 1000);
+  assert.strictEqual(conv.readTyped("다른 창의 답."), false);
+  clearTimeout(conv.awaiting);
+  conv.awaiting = null;
+  assert.ok(conv.readTyped("이제 읽어요."), "an open mic with nothing said does not hold it");
+  await until(() => engine.ops("tts").length > 0, "the reading");
+  conv.stop();
+});
