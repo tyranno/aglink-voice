@@ -42,7 +42,7 @@ builds, in `dist\` (NSIS 3 needed):
   CPU, the extension. Installs for the current user into
   `%LOCALAPPDATA%\aglink-voice` without administrator rights, then installs
   the extension with VS Code's `code`. Uninstall from Windows' app list.
-- `aglink-voice-gpu-<ver>.exe` (~1 GB): Whisper on NVIDIA GPUs, added to an
+- `aglink-voice-gpu-<ver>.exe` (~310 MB): Whisper on NVIDIA GPUs, added to an
   installed setup.
 
 Nothing is downloaded at install. The Visual C++ runtime is copied next to
