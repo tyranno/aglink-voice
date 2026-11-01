@@ -9,8 +9,10 @@
     <RootNamespace>AglinkVoice</RootNamespace>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
-    <InvariantGlobalization>true</InvariantGlobalization>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- No InvariantGlobalization: Supertonic splits Hangul into jamo with
+         string.Normalize(FormKD), which does nothing in invariant mode, and
+         the reading came out as gibberish. -->
   </PropertyGroup>
 
   <ItemGroup>
