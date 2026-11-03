@@ -285,8 +285,11 @@ class Conversation extends EventEmitter {
     return !!this.store.get("speaker");
   }
 
-  // speakerScore: how much a clip sounds like the enrolled user, -1 if no
-  // voice is enrolled or the check failed.
+  // speakerScore: how much a clip sounds like the enrolled user. -1 means no
+  // voice is enrolled (nothing to check against, so anything passes); -2
+  // means one is enrolled but the check itself failed (an echo tail too
+  // short or broken for the embedding model) — that must not pass as a
+  // free voice match, or our own reading gets taken for the user.
   async speakerScore(wav) {
     const sp = this.store.get("speaker");
     if (!sp || !wav) return -1;
@@ -294,7 +297,7 @@ class Conversation extends EventEmitter {
     try {
       e = (await this.engine.call("embed", { wav: wav.toString("base64") })).embedding;
     } catch {
-      return -1;
+      return -2;
     }
     const score = A.cosine(e, sp.ref);
     if (score >= ADAPT_MIN && A.clipSeconds(wav) >= ADAPT_SECONDS && A.cosine(e, sp.base) >= ANCHOR_MIN) {
@@ -306,7 +309,7 @@ class Conversation extends EventEmitter {
   }
 
   isUserVoice(score, min) {
-    return score < 0 || score >= min;
+    return score === -1 || score >= min;
   }
 
   async transcribe(wav) {
