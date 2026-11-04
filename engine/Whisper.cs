@@ -40,7 +40,7 @@ namespace AglinkVoice
                     {
                         Launch(exe, model);
                         State = name;
-                        Engine.Log($"whisper-server ready ({name})");
+                        Engine.Log($"whisper-server ready ({name}, {Path.GetFileName(model)})");
                         Engine.Send(new { ev = "status", whisper = name });
                         return;
                     }
