@@ -100,14 +100,19 @@ namespace AglinkVoice
             return 0;
         }
 
-        static void StartWhisper() => Whisper.Start(Path.Combine(Root, "whisper"), WhisperModel());
+        static void StartWhisper() => Whisper.Start(Path.Combine(Root, "whisper"), WhisperModel);
 
-        // WhisperModel prefers the 8-bit small model when it is installed: on a
-        // CPU it recognises ~15 % faster than the full-precision one with the
-        // same text (measured on a CPU-only PC). Without it the original is used.
-        static string WhisperModel()
+        // WhisperModel picks the model for the build that runs it. On a GPU,
+        // large-v3-turbo (8-bit) when installed: on a GTX 1060 it takes ~0.85 s
+        // for a short sentence against small's ~0.4 s, and gets more Korean
+        // right. On a CPU the same model took 11-14 s, so the CPU keeps small,
+        // the 8-bit one when installed (~15 % faster with the same text).
+        static string WhisperModel(bool gpu)
         {
-            foreach (var name in new[] { "ggml-small-q8_0.bin", "ggml-small.bin" })
+            var names = gpu
+                ? new[] { "ggml-large-v3-turbo-q8_0.bin", "ggml-small-q8_0.bin", "ggml-small.bin" }
+                : new[] { "ggml-small-q8_0.bin", "ggml-small.bin" };
+            foreach (var name in names)
             {
                 var p = Path.Combine(Root, "models", name);
                 if (File.Exists(p)) return p;

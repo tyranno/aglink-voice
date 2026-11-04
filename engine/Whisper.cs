@@ -23,8 +23,9 @@ namespace AglinkVoice
         public static volatile string State = "idle"; // idle (not asked for) | starting | gpu | cpu | off
         static int started;
 
-        // Start brings the server up once; later calls do nothing.
-        public static void Start(string dir, string model)
+        // Start brings the server up once; later calls do nothing. modelFor
+        // names the model for the GPU (true) or the CPU build (false).
+        public static void Start(string dir, Func<bool, string> modelFor)
         {
             if (Interlocked.Exchange(ref started, 1) == 1) return;
             State = "starting";
@@ -35,6 +36,7 @@ namespace AglinkVoice
                 foreach (var (sub, name) in gpu ? new[] { ("cuda", "gpu"), ("cpu", "cpu") } : new[] { ("cpu", "cpu") })
                 {
                     var exe = Path.Combine(dir, sub, "whisper-server.exe");
+                    var model = modelFor(name == "gpu");
                     if (!File.Exists(exe) || !File.Exists(model)) continue;
                     try
                     {
