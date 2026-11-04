@@ -62,6 +62,8 @@ function activate(context) {
     preview: standaloneOnly(() => standalone.preview()),
     enroll: standaloneOnly(() => standalone.enroll()),
     unenroll: () => standalone.unenroll(),
+    pickMic: standaloneOnly(() => pickDevice("micDevice", "inputs", "듣는 마이크")),
+    pickOutput: standaloneOnly(() => pickDevice("outputDevice", "outputs", "읽어 주는 소리가 나올 곳")),
   };
 
   async function pickVoice() {
@@ -86,6 +88,33 @@ function activate(context) {
     await standalone.preview();
   }
 
+  // pickDevice chooses the mic (key "micDevice", the engine's inputs) or where
+  // the reading plays (key "outputDevice", its outputs). Blank is Windows'
+  // default, which follows whatever Windows has chosen — a headset included.
+  async function pickDevice(key, kind, title) {
+    let list;
+    try {
+      list = (await standalone.devices())[kind];
+    } catch (e) {
+      vscode.window.showErrorMessage(`aglink 음성: 장치 목록을 읽지 못했어요 — ${e.message}`);
+      return;
+    }
+    const now = cfg().get(key) || "";
+    const mark = (v) => (v === now ? "$(check) " : "");
+    const items = [{ label: `${mark("")}윈도우 기본 장치`, description: "윈도우 소리 설정에서 고른 장치를 따라가요", value: "" }];
+    for (const name of list) if (name) items.push({ label: `${mark(name)}${name}`, value: name });
+    if (now && !list.includes(now)) items.push({ label: `$(check) ${now}`, description: "지금 연결되어 있지 않아요 (윈도우 기본 장치로 들어요)", value: now });
+    const pick = await vscode.window.showQuickPick(items, {
+      title,
+      placeHolder: kind === "inputs" ? "블루투스 이어폰은 켠 뒤 몇 초 지나야 소리가 들어와요" : "고르면 그 장치로 한 번 읽어 줘요",
+    });
+    if (!pick) return;
+    await set(key, pick.value);
+    if (kind === "outputs") await standalone.preview();
+  }
+
+  const deviceLabel = (v) => v || "윈도우 기본";
+
   // menu: the status bar button. On/off first, then the settings changed most.
   async function menu() {
     const on = mode() === "desktop" ? desktop.on : standalone.on;
@@ -101,6 +130,9 @@ function activate(context) {
         { label: `$(person) 목소리: ${voiceLabel(s.get("voice") || "M2")}`, run: pickVoice },
         { label: `$(dashboard) 빠르기: ${s.get("speed")}배`, run: pickSpeed },
         { label: `$(play) 지금 목소리로 들어 보기`, run: () => standalone.preview() },
+        { label: "", kind: vscode.QuickPickItemKind.Separator },
+        { label: `$(record) 마이크: ${deviceLabel(s.get("micDevice"))}`, run: () => pickDevice("micDevice", "inputs", "듣는 마이크") },
+        { label: `$(unmute) 소리 나올 곳: ${deviceLabel(s.get("outputDevice"))}`, run: () => pickDevice("outputDevice", "outputs", "읽어 주는 소리가 나올 곳") },
         { label: "", kind: vscode.QuickPickItemKind.Separator },
         { label: `$(list-flat) 긴 답은 요점만 읽기: ${onOff(s.get("summary"))}`, run: () => set("summary", !s.get("summary")) },
         { label: `$(file-text) 말로 물어도 답은 글로만: ${onOff(s.get("textOnly"))}`, run: () => set("textOnly", !s.get("textOnly")) },
@@ -126,6 +158,7 @@ function activate(context) {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("aglinkVoice")) render();
       if (e.affectsConfiguration("aglinkVoice.readTyped")) void standalone.syncReadTyped();
+      if (e.affectsConfiguration("aglinkVoice.micDevice")) standalone.micDeviceChanged();
     }),
   );
   disposeAll = () => {

@@ -97,12 +97,23 @@ try {
 Write-Host "packaged: $out"
 if ($PackageOnly) { return }
 
-Get-ChildItem Env: | Where-Object { $_.Name -match '^(ELECTRON_RUN_AS_NODE|VSCODE_)' } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
+# A shell opened inside VS Code can carry a VSCODE_* variable with an empty
+# value; Remove-Item cannot find such a name and, under 'Stop', aborted the
+# whole install. Missing is fine — the point is only that none is left.
+foreach ($name in @(Get-ChildItem Env: | Where-Object { $_.Name -match '^(ELECTRON_RUN_AS_NODE|VSCODE_)' } | ForEach-Object Name)) {
+    Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+}
 
 $code = Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin\code.cmd'
 if (-not (Test-Path $code)) { $code = 'code' }
 $installArgs = @('--install-extension', $out, '--force')
 if ($ExtensionsDir) { $installArgs = @('--extensions-dir', $ExtensionsDir) + $installArgs }
-& $code @installArgs
-if ($LASTEXITCODE -ne 0) { throw "code --install-extension failed ($LASTEXITCODE)" }
+# The exit code decides, not stderr: code.cmd's Node prints deprecation
+# warnings there, which Windows PowerShell 5.1 turns into errors under 'Stop'
+# and so reported a successful install as a failure.
+$ErrorActionPreference = 'Continue'
+& $code @installArgs 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -notmatch 'DeprecationWarning|--trace-deprecation' }
+$rc = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+if ($rc -ne 0) { throw "code --install-extension failed ($rc)" }
 Write-Host "installed $($pkg.publisher).$($pkg.name) $version"

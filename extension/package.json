@@ -201,6 +201,18 @@
           "order": 10,
           "markdownDescription": "답을 읽는 도중에 말하면 읽기를 멈추고 바로 들어요. 스피커 소리가 마이크로 들어가면 저절로 멈출 수 있으니 헤드셋을 쓸 때 켜는 게 좋아요."
         },
+        "aglinkVoice.micDevice": {
+          "type": "string",
+          "default": "",
+          "order": 10,
+          "markdownDescription": "듣는 마이크예요. 비워 두면 **윈도우 기본 입력 장치**를 따라가요. 고르기는 상태 표시줄 음성 버튼 → \"마이크\" 에서 해요. 고른 장치가 연결되어 있지 않으면 윈도우 기본 장치로 들어요. 블루투스 이어폰은 켠 뒤 몇 초 지나야 소리가 들어와요."
+        },
+        "aglinkVoice.outputDevice": {
+          "type": "string",
+          "default": "",
+          "order": 10,
+          "markdownDescription": "읽어 주는 소리가 나올 곳이에요. 비워 두면 **윈도우 기본 출력 장치**로 나와요. 블루투스 이어폰의 마이크를 쓰는 동안은 그 이어폰 소리가 전화 음질이 되니, 소리는 PC 스피커로 고르는 것도 방법이에요."
+        },
         "aglinkVoice.source": {
           "type": "string",
           "default": "auto",

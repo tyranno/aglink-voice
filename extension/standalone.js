@@ -25,7 +25,7 @@ const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
 const { STANDALONE_PORT, ensureStopHook } = require("./hook");
 
 const SECTION = "aglinkVoice";
-const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge"];
+const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge", "micDevice", "outputDevice"];
 const READER_IDLE_MS = 10 * 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -365,6 +365,19 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       }
       await c.preview();
       idleLater();
+    },
+    // devices lists the PC's recording and output devices by the names the
+    // engine opens them by; voice need not be on.
+    async devices() {
+      const c = voiceOn() ? conv : await reader();
+      if (!c || !engine) throw new Error("음성 엔진을 켜지 못했어요");
+      const r = await engine.call("devices");
+      idleLater();
+      return { inputs: r.inputs || [], outputs: r.outputs || [] };
+    },
+    // micDeviceChanged applies a newly picked mic while voice is on.
+    micDeviceChanged() {
+      if (conv) void conv.micDeviceChanged();
     },
     onChange(fn) {
       listeners.add(fn);

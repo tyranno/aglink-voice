@@ -8,14 +8,14 @@ const crypto = require("crypto");
 const { TTS_VOICES, voiceLabel, cleanWakeNames, MAX_WAKE_NAMES } = require("./core/text");
 
 const SECTION = "aglinkVoice";
-const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "source", "enginePath", "engineRoot"];
+const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "micDevice", "outputDevice", "source", "enginePath", "engineRoot"];
 
 let panel = null;
 
 // open shows the settings tab (one per VS Code window). host gives what the
 // panel shows beside the settings and what its buttons do:
 //   status() → {on, enrolled, desktop}; onChange(fn) → disposable;
-//   toggle(), preview(), enroll(), unenroll().
+//   toggle(), preview(), enroll(), unenroll(), pickMic(), pickOutput().
 function openSettings(vscode, host) {
   if (panel) {
     panel.reveal();
@@ -62,6 +62,12 @@ function openSettings(vscode, host) {
             break;
           case "unenroll":
             host.unenroll();
+            break;
+          case "pickMic":
+            await host.pickMic();
+            break;
+          case "pickOutput":
+            await host.pickOutput();
             break;
           case "native":
             await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:aglink.aglink-voice");
@@ -210,6 +216,24 @@ function html(nonce) {
   <p class="desc">등록한 목소리와 얼마나 비슷해야 받을지예요. 높을수록 다른 사람 말을 잘 거르지만 내 말도 가끔 놓칠 수 있어요. 보통은 0.4 가 알맞아요.</p>
 </div>
 
+<h2>장치</h2>
+<div class="row">
+  <div class="inline">
+    <span class="title">마이크</span>
+    <span class="pill" id="micDevice"></span>
+    <button class="secondary" id="pickMic">고르기</button>
+  </div>
+  <p class="desc">말을 듣는 마이크예요. "윈도우 기본"이면 윈도우 소리 설정에서 고른 입력 장치를 따라가요. 고른 장치가 꺼져 있으면 윈도우 기본 장치로 들어요. 블루투스 이어폰은 켠 뒤 몇 초 지나야 소리가 들어와요.</p>
+</div>
+<div class="row">
+  <div class="inline">
+    <span class="title">소리 나올 곳</span>
+    <span class="pill" id="outputDevice"></span>
+    <button class="secondary" id="pickOutput">고르기</button>
+  </div>
+  <p class="desc">읽어 주는 소리가 나오는 장치예요. 블루투스 이어폰의 마이크를 쓰는 동안은 그 이어폰 소리가 전화 음질이 되니, 소리는 PC 스피커로 고르는 것도 방법이에요.</p>
+</div>
+
 <details>
 <summary>고급</summary>
 <div class="row">
@@ -261,7 +285,7 @@ function html(nonce) {
   for (const name of ["listenMode", "source"])
     for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.addEventListener("change", (e) => e.target.checked && set(name, e.target.value));
   for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
-  for (const id of ["toggle", "preview", "enroll", "unenroll", "native"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
+  for (const id of ["toggle", "preview", "enroll", "unenroll", "native", "pickMic", "pickOutput"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
 
   window.addEventListener("message", ({ data: m }) => {
     if (m.type !== "state") return;
@@ -279,6 +303,8 @@ function html(nonce) {
       if (document.activeElement === $(id)) continue; // not under the cursor
       $(id).value = Array.isArray(v[id]) ? v[id].join(", ") : v[id] || "";
     }
+    $("micDevice").textContent = v.micDevice || "윈도우 기본";
+    $("outputDevice").textContent = v.outputDevice || "윈도우 기본";
     $("onState").textContent = m.on ? "음성 켜짐" : "음성 꺼짐";
     $("toggle").textContent = m.on ? "음성 대화 끄기" : "음성 대화 켜기";
     $("enrolled").textContent = m.enrolled ? "목소리 등록됨" : "등록 안 됨";

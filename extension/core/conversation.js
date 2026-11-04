@@ -119,6 +119,7 @@ class Conversation extends EventEmitter {
 
     engine.on("mic", (m) => this.onFrame(A.pcmToFloat(m.pcm)));
     engine.on("micError", (m) => this.onMicError(m.error));
+    engine.on("deviceMissing", (m) => this.onDeviceMissing(m));
     engine.on("status", () => this.render());
   }
 
@@ -137,7 +138,7 @@ class Conversation extends EventEmitter {
   async start() {
     if (this.on_) return;
     this.on_ = true;
-    await this.engine.call("mic", { on: true });
+    await this.engine.call("mic", { on: true, device: this.micDevice() });
     if (this.s.listenMode === "wake") {
       this.log(`waiting for ${quote(T.wakeNameLabel(this.s))}`);
       this.render();
@@ -220,6 +221,35 @@ class Conversation extends EventEmitter {
 
   // ---- the mic ----
 
+  // micDevice / outputDevice are the devices the user picked by name; blank
+  // means Windows' default device.
+  micDevice() {
+    return this.s.micDevice || "";
+  }
+
+  outputDevice() {
+    return this.s.outputDevice || "";
+  }
+
+  // micDeviceChanged reopens the mic on the newly picked device while voice is
+  // on; when off, the next start uses it anyway.
+  async micDeviceChanged() {
+    if (!this.on_) return;
+    try {
+      await this.engine.call("mic", { on: true, device: this.micDevice() });
+      this.log(`mic: ${this.micDevice() || "Windows default"}`);
+    } catch (e) {
+      this.problem = `마이크를 열 수 없어요: ${e.message}`;
+      this.render();
+    }
+  }
+
+  // onDeviceMissing: the picked device is not connected (a headset switched
+  // off); the engine used Windows' default instead.
+  onDeviceMissing(m) {
+    this.log(`${m.kind === "mic" ? "mic" : "output"} device "${m.name}" is not connected; using Windows' default`);
+  }
+
   onMicError(error) {
     this.log(`mic failed: ${error}`);
     if (!this.on_) return;
@@ -229,7 +259,7 @@ class Conversation extends EventEmitter {
       if (!this.on_) return;
       try {
         await this.engine.call("mic", { on: false });
-        await this.engine.call("mic", { on: true });
+        await this.engine.call("mic", { on: true, device: this.micDevice() });
         this.problem = "";
       } catch (e) {
         this.problem = `마이크를 열 수 없어요: ${e.message}`;
@@ -800,7 +830,7 @@ class Conversation extends EventEmitter {
     if (gen !== this.gen) return;
     const ref = this.addPlayRef(wav);
     try {
-      await this.engine.call("play", { wav: wav.toString("base64"), gen });
+      await this.engine.call("play", { wav: wav.toString("base64"), gen, device: this.outputDevice() });
     } finally {
       if (ref && ref.endAt > this.now()) ref.endAt = this.now();
     }

@@ -129,11 +129,49 @@ namespace AglinkVoice
         static extern bool PlaySound(IntPtr sound, IntPtr module, uint flags);
 
         static Playing? cur;
+        static WaveOutEvent? curOut; // set while cur plays on a chosen device
         static long stoppedGen = long.MinValue;
         static readonly object mu = new();
 
-        // Play blocks until the reading is over; false if it was stopped.
-        public static bool Play(byte[] wav, long gen)
+        // Play blocks until the reading is over; false if it was stopped. device
+        // is an output name from Devices.Outputs(); blank is Windows' default,
+        // which keeps PlaySound. A name no longer present (headset unplugged)
+        // falls back to the default and says so.
+        public static bool Play(byte[] wav, long gen, string device = "")
+        {
+            int? number = Devices.OutputNumber(device);
+            if (number == null) Engine.Send(new { ev = "deviceMissing", kind = "output", name = device });
+            return number is int n && n >= 0 ? PlayOn(wav, gen, n) : PlayDefault(wav, gen);
+        }
+
+        // PlayOn plays on one WinMM output device. PlaySound cannot pick a
+        // device, so this goes through WaveOut — but with the whole clip already
+        // in memory and a generous buffer, which is what keeps it from breaking
+        // up while the next sentence is being synthesized.
+        static bool PlayOn(byte[] wav, long gen, int number)
+        {
+            var p = new Playing { Gen = gen };
+            using var reader = new WaveFileReader(new MemoryStream(wav));
+            using var o = new WaveOutEvent { DeviceNumber = number, DesiredLatency = 300, NumberOfBuffers = 3 };
+            o.Init(reader);
+            o.PlaybackStopped += (_, _) => p.Done.Set();
+            lock (mu)
+            {
+                if (gen <= stoppedGen) return false;
+                StopLocked();
+                cur = p;
+                curOut = o;
+                o.Play();
+            }
+            p.Done.Wait(reader.TotalTime + TimeSpan.FromSeconds(2));
+            lock (mu)
+            {
+                if (cur == p) { cur = null; curOut = null; }
+            }
+            return !p.Stopped;
+        }
+
+        static bool PlayDefault(byte[] wav, long gen)
         {
             TimeSpan length;
             using (var reader = new WaveFileReader(new MemoryStream(wav))) length = reader.TotalTime;
@@ -173,31 +211,101 @@ namespace AglinkVoice
         {
             if (cur == null) return;
             cur.Stopped = true;
-            PlaySound(IntPtr.Zero, IntPtr.Zero, 0);
+            if (curOut != null)
+            {
+                curOut.Stop();
+                curOut = null;
+            }
+            else PlaySound(IntPtr.Zero, IntPtr.Zero, 0);
             cur.Done.Set(); // releases the waiting Play
             cur = null;
         }
     }
 
+    // Devices are the WinMM recording and output devices by name (Windows cuts
+    // these names at 31 characters). The extension stores the name the user
+    // picked; blank means Windows' default device.
+    static class Devices
+    {
+        public static string[] Inputs()
+        {
+            var a = new string[WaveInEvent.DeviceCount];
+            for (int i = 0; i < a.Length; i++) a[i] = WaveInEvent.GetCapabilities(i).ProductName;
+            return a;
+        }
+
+        // NAudio.WinMM has no output-device listing (that lives with WinForms'
+        // WaveOut), so ask winmm directly.
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct WaveOutCaps
+        {
+            public ushort Mid, Pid;
+            public uint DriverVersion;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string Name;
+            public uint Formats;
+            public ushort Channels, Reserved;
+            public uint Support;
+        }
+
+        [DllImport("winmm.dll")] static extern int waveOutGetNumDevs();
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, EntryPoint = "waveOutGetDevCapsW")]
+        static extern int waveOutGetDevCaps(IntPtr id, ref WaveOutCaps caps, int size);
+
+        public static string[] Outputs()
+        {
+            var a = new string[waveOutGetNumDevs()];
+            for (int i = 0; i < a.Length; i++)
+            {
+                var c = new WaveOutCaps();
+                a[i] = waveOutGetDevCaps((IntPtr)i, ref c, Marshal.SizeOf<WaveOutCaps>()) == 0 ? c.Name : "";
+            }
+            return a;
+        }
+
+        // -1 is Windows' default (WAVE_MAPPER); null means a named device that is
+        // not there now.
+        public static int? InputNumber(string name) => Find(Inputs(), name);
+        public static int? OutputNumber(string name) => Find(Outputs(), name);
+
+        static int? Find(string[] names, string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return -1;
+            int i = Array.IndexOf(names, name);
+            if (i >= 0) return i;
+            // A setting may hold the longer Windows name; WinMM's is its first 31 characters.
+            for (int j = 0; j < names.Length; j++)
+                if (names[j].Length > 0 && name.StartsWith(names[j], StringComparison.Ordinal)) return j;
+            return null;
+        }
+    }
+
     // Mic streams 16 kHz mono 16-bit audio in 50 ms pieces while it is on.
+    // device is an input name from Devices.Inputs(); blank is Windows' default
+    // input (WAVE_MAPPER) — not device 0, which is whatever WinMM lists first
+    // and was the built-in mic even with a headset chosen in Windows.
     static class Mic
     {
         static WaveInEvent? dev;
+        static string devName = "";
         static readonly object mu = new();
 
-        public static void Set(bool on)
+        public static void Set(bool on, string device = "")
         {
             lock (mu)
             {
-                if (on == (dev != null)) return;
-                if (!on)
+                device ??= "";
+                if (on && dev != null && device == devName) return;
+                if (!on && dev == null) return;
+                if (dev != null)
                 {
-                    dev!.StopRecording();
+                    dev.StopRecording();
                     dev.Dispose();
                     dev = null;
-                    return;
                 }
-                var d = new WaveInEvent { WaveFormat = new WaveFormat(16000, 16, 1), BufferMilliseconds = 50, NumberOfBuffers = 4 };
+                if (!on) return;
+                int? number = Devices.InputNumber(device);
+                if (number == null) Engine.Send(new { ev = "deviceMissing", kind = "mic", name = device });
+                var d = new WaveInEvent { DeviceNumber = number ?? -1, WaveFormat = new WaveFormat(16000, 16, 1), BufferMilliseconds = 50, NumberOfBuffers = 4 };
                 d.DataAvailable += (_, e) =>
                 {
                     if (e.BytesRecorded > 0) Engine.Send(new { ev = "mic", pcm = Convert.ToBase64String(e.Buffer, 0, e.BytesRecorded) });
@@ -208,6 +316,7 @@ namespace AglinkVoice
                 };
                 d.StartRecording();
                 dev = d;
+                devName = device;
             }
         }
     }

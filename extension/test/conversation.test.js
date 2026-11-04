@@ -196,3 +196,32 @@ test("with voice on, a typed answer is not read over an answer being awaited", a
   await until(() => engine.ops("tts").length > 0, "the reading");
   conv.stop();
 });
+
+test("the picked mic opens on start, a new pick reopens it, and blank means Windows' default", async () => {
+  const { conv, engine, values } = setup({ settings: { micDevice: "머리에 거는 수화기(S3)" } });
+  await conv.start();
+  assert.deepStrictEqual(engine.ops("mic").map((c) => [c.on, c.device]), [[true, "머리에 거는 수화기(S3)"]]);
+
+  values.micDevice = "";
+  await conv.micDeviceChanged();
+  assert.deepStrictEqual(engine.ops("mic").pop(), { op: "mic", on: true, device: "" });
+
+  conv.stop();
+  const before = engine.ops("mic").length;
+  values.micDevice = "다른 마이크";
+  await conv.micDeviceChanged(); // off: nothing opens now, the next start uses it
+  assert.strictEqual(engine.ops("mic").length, before);
+});
+
+test("the reading plays on the picked output, and a missing device is logged", async () => {
+  const logs = [];
+  const { conv, engine } = setup({ settings: { outputDevice: "스피커(2- Realtek(R) Audio)" } });
+  conv.log = (m) => logs.push(m);
+  await conv.preview();
+  const plays = engine.ops("play");
+  assert.ok(plays.length >= 1, "the preview played");
+  for (const p of plays) assert.strictEqual(p.device, "스피커(2- Realtek(R) Audio)");
+
+  engine.emit("deviceMissing", { kind: "mic", name: "머리에 거는 수화기(S3)" });
+  assert.ok(logs.some((m) => /not connected/.test(m) && /S3/.test(m)), logs.join("\n"));
+});
