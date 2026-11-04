@@ -49,6 +49,14 @@ test("a summary takes a point from every paragraph, not just the first one", () 
   assert.doesNotMatch(s, /빠르면 말을 삼켜요|음 높이는/);
 });
 
+test("a sentence that announces points is read with the points it announces", () => {
+  const md = "올렸어요. 상태도 같아요.\n\n알아 두실 점이 두 가지 있어요. 하나는 테스트 두 개가 실패한다는 거예요. 그건 원래 그랬어요. 다른 하나는 파일을 직접 복사했다는 거예요. 다시 설치하면 덮어써져요.\n\n고친 것은 이래요. 엔진이에요. 확장이에요. 문서예요.";
+  const s = T.speechText(md, "short");
+  assert.match(s, /두 가지 있어요\. 하나는 테스트 두 개가 실패한다는 거예요\. 다른 하나는 파일을 직접 복사했다는 거예요\./);
+  assert.doesNotMatch(s, /원래 그랬어요|덮어써져요|문서예요/);
+  assert.match(s, /이래요\. 엔진이에요\. 확장이에요\./);
+});
+
 test("isEcho tells our own reading heard back from the user's words", () => {
   const reply = "여섯 군데를 고쳤어요. 테스트는 모두 통과했어요.";
   assert.ok(T.isEcho("테스트는 모두 통과했어요", reply));

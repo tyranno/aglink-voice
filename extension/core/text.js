@@ -20,8 +20,8 @@ const LISTEN_WAKE_RE = /^(호출어|부르기|부르면|아글링크\s*(로|하�
 const WAKE_NAME_SET_RE = /^(?:(?:부르는|호출|깨우는)\s*이름|호출어)\s*(을|를)?\s*["“']?(.{1,8}?)["”']?\s*(으로|로)\s*(바꿔|정해|해|지정해|설정해)\S*(\s*(줘|주세요))?[.!?~\s]*$/;
 const WAKE_NAME_ADD_RE = /^["“']?(.{1,8}?)["”']?\s*(이)?라고\s*(불러도|해도|하면|부르면)\s*(알아들어|대답해|깨어나|켜져|켜)\S*(\s*(줘|주세요))?[.!?~\s]*$/;
 const SPEAK_LIMITS = {
-  short: { chars: 360, sentences: 2, points: 5 },
-  gist: { chars: 700, sentences: 3, points: 8 },
+  short: { chars: 480, sentences: 2, points: 6 },
+  gist: { chars: 800, sentences: 3, points: 8 },
 };
 const MAX_FULL_CHARS = 4000;
 const CUT_MARGIN = 80; // a full reading this much longer than the summary means it was cut
@@ -263,7 +263,7 @@ function speechText(md, mode = "gist") {
     if (prose) opening = opening ? `${opening} ${prose}` : prose;
   }
   let out = "";
-  for (const x of sentencesOf(opening).slice(0, MAX_SPEAK_SENTENCES)) {
+  for (const x of takeSentences(sentencesOf(opening), MAX_SPEAK_SENTENCES)) {
     if (out && (out + x).length > MAX_SPEAK_CHARS) break;
     out += x;
   }
@@ -283,7 +283,7 @@ function speechText(md, mode = "gist") {
     }
     const prose = cleanProse(para);
     if (!prose) continue;
-    const point = sentencesOf(prose)[0];
+    const point = takeSentences(sentencesOf(prose), 1).join("");
     if (point) points.push(point);
     closing = prose;
   }
@@ -299,6 +299,27 @@ function speechText(md, mode = "gist") {
   out = out.replace(/\s+/g, " ").trim();
   if (out.length > MAX_SPEAK_CHARS + 120) out = out.slice(0, MAX_SPEAK_CHARS + 120);
   return out;
+}
+
+// A sentence that only announces what follows ("알아 두실 점이 두 가지
+// 있어요.", "…이래요:") says nothing on its own: read alone it leaves the
+// listener waiting. takeSentences takes the first n sentences and, when the
+// last of them is one of these, the ones it announces — those that open with
+// "하나는", "두 번째는", "마지막으로"… if there are any, else the next ones.
+const COUNTS = { 두: 2, 세: 3, 네: 4, 다섯: 5 };
+const COUNTED_RE = /(두|세|네|다섯)\s*(가지|개|곳|군데|단계)/;
+const ANNOUNCE_RE = /((두|세|네|다섯|몇|여러)\s*(가지|개|곳|군데|단계)|다음과 같|이래요\s*[.:：]?\s*$|[:：]\s*$)/;
+const ENUM_RE = /^\s*(하나는|다른 하나는|나머지 하나는|첫\s*(번)?\s*째|두\s*번\s*째|세\s*번\s*째|네\s*번\s*째|다섯\s*번\s*째|둘째|셋째|넷째|마지막)/;
+
+function takeSentences(ss, n) {
+  const out = ss.slice(0, n);
+  const last = out[out.length - 1];
+  if (!last || !ANNOUNCE_RE.test(last)) return out;
+  const m = COUNTED_RE.exec(last);
+  const k = m ? COUNTS[m[1]] : 2;
+  const rest = ss.slice(out.length);
+  const marked = rest.filter((x) => ENUM_RE.test(x));
+  return out.concat((marked.length ? marked : rest).slice(0, k));
 }
 
 // fullSpeechText is the whole reply as speech for "자세히 읽어 줘": every prose
