@@ -40,7 +40,6 @@ const BARGE_MIN_LOUD_CHUNKS = 8; // ~0.4 s above the echo floor
 const BARGE_PREROLL_CHUNKS = 14;
 const MAX_CLIP_MS = 60000;
 const LEAD_MAX_CHARS = 20; // the first piece read: short, so its synthesis starts the reading soon
-const LEAD_STEPS = 4; // synthesis steps for that piece (the rest uses the engine's default)
 const PREROLL_MS = 600; // a soft start sits below the floor: keep what came just before it
 const ENROLL_MS = 15000;
 const ENROLL_MIN_S = 5;
@@ -883,7 +882,8 @@ class Conversation extends EventEmitter {
     const gen = this.gen;
     // The wait before the first sound is the first piece's synthesis, which
     // grows with its length: a long first sentence is read in two, a short
-    // lead made with fewer steps and the rest made while the lead plays.
+    // lead read first (at full quality) and the rest made while it plays. The
+    // lead is NOT made with fewer steps — that sounded rough on its first words.
     const sentences = T.splitLead(T.splitSentences(text), LEAD_MAX_CHARS);
     this.replyText = text;
     this.speaking = true; // covers the first synthesis, so the mic waits
@@ -901,7 +901,7 @@ class Conversation extends EventEmitter {
     this.answerAt = 0;
     let synthStart = Date.now();
     try {
-      let next = this.synthesize(sentences[0], LEAD_STEPS);
+      let next = this.synthesize(sentences[0]);
       for (let i = 0; i < sentences.length && gen === this.gen; i++) {
         let wav = null;
         try {

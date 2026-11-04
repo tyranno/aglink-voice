@@ -282,7 +282,7 @@ test("a quiet speaker's soft speech still counts once their level is known, and 
   assert.ok(Math.sqrt(s / 8000) > 0.05, "turned up for Whisper");
 });
 
-test("the first piece is made with fewer steps, the rest at the engine's default", async () => {
+test("a long first sentence is read lead-first, every piece at full quality", async () => {
   const { conv, engine } = setup();
   conv.onReply("오늘 오후 세 시 회의 자료를 정리해서 팀원들에게 메일로 보냈습니다. 확인해 주세요.");
   await conv.speak("오늘 오후 세 시 회의 자료를 정리해서 팀원들에게 메일로 보냈습니다. 확인해 주세요.", "full");
@@ -290,6 +290,5 @@ test("the first piece is made with fewer steps, the rest at the engine's default
   assert.ok(tts.length >= 3, JSON.stringify(tts.map((c) => c.text)));
   const first = tts.findIndex((c) => c.text === "오늘 오후 세 시 회의 자료를");
   assert.ok(first >= 0, "the lead was read on its own");
-  assert.strictEqual(tts[first].steps, 4);
-  assert.strictEqual(tts[first + 1].steps, undefined, "the rest: default quality");
+  for (const c of tts) assert.strictEqual(c.steps, undefined, "no piece uses fewer steps");
 });
