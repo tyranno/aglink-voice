@@ -9,6 +9,7 @@ using System.Threading;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using NAudio.Wave;
+using SoundTouch;
 using Supertonic;
 
 namespace AglinkVoice
@@ -76,6 +77,11 @@ namespace AglinkVoice
         // Diffusion steps per sentence: fewer is faster (about linearly) and a
         // little rougher. The extension may ask for fewer to start reading sooner.
         public const int DefaultSteps = 8;
+        // Supertonic swallows words when asked to speak fast: at 1.5 "네,
+        // 바뀌었어요." comes out as "네." and even 1.1 drops a word now and then.
+        // So it speaks at most this fast, and the rest of the speed is a
+        // pitch-keeping time stretch of the finished clip.
+        const float MaxModelSpeed = 1.0f;
 
         static string Dir => Path.Combine(Engine.Root, "models", "supertonic");
 
@@ -106,10 +112,22 @@ namespace AglinkVoice
                     style = Helper.LoadVoiceStyle(new List<string> { p });
                     styles[voice] = style;
                 }
-                var (wav, duration) = tts.Call(text, "ko", style, steps, speed);
+                var (wav, duration) = tts.Call(text, "ko", style, steps, Math.Min(speed, MaxModelSpeed));
                 int len = Math.Min(wav.Length, (int)(tts.SampleRate * duration[0]));
-                return Wav.Encode(wav[..len], tts.SampleRate);
+                return Wav.Encode(Stretch(wav[..len], tts.SampleRate, speed / Math.Min(speed, MaxModelSpeed)), tts.SampleRate);
             }
+        }
+
+        // Stretch plays samples tempo times as fast without changing the pitch.
+        static float[] Stretch(float[] samples, int rate, float tempo)
+        {
+            if (tempo < 1.01f) return samples;
+            var st = new SoundTouchProcessor { SampleRate = rate, Channels = 1, Tempo = tempo };
+            st.PutSamples(samples, samples.Length);
+            st.Flush();
+            var outp = new float[(int)(samples.Length / tempo) + rate];
+            int n = st.ReceiveSamples(outp, outp.Length);
+            return outp[..n];
         }
     }
 
@@ -118,9 +136,10 @@ namespace AglinkVoice
     // number (gen): a stop for reading n cuts n and anything older, and a play
     // of a reading already stopped never starts — whichever arrives first.
     //
-    // The whole clip goes to Windows at once (PlaySound from memory, as the
-    // desktop app plays): streaming it through WaveOut's small buffers broke
-    // up whenever the next sentence's synthesis had the CPU.
+    // Every clip goes through WaveOut, which says when the sound has really
+    // ended. PlaySound did not: waiting the clip's length from the call cut its
+    // last words whenever the device was slow to start, most clearly on the
+    // short first piece of a reading.
     static class Player
     {
         sealed class Playing
@@ -130,29 +149,25 @@ namespace AglinkVoice
             public long Gen;
         }
 
-        const uint SND_ASYNC = 0x1, SND_NODEFAULT = 0x2, SND_MEMORY = 0x4;
-
-        [DllImport("winmm.dll", SetLastError = true)]
-        static extern bool PlaySound(IntPtr sound, IntPtr module, uint flags);
+        const int WAVE_MAPPER = -1; // Windows' default output device
 
         static Playing? cur;
-        static WaveOutEvent? curOut; // set while cur plays on a chosen device
+        static WaveOutEvent? curOut;
         static long stoppedGen = long.MinValue;
         static readonly object mu = new();
 
         // Play blocks until the reading is over; false if it was stopped. device
-        // is an output name from Devices.Outputs(); blank is Windows' default,
-        // which keeps PlaySound. A name no longer present (headset unplugged)
-        // falls back to the default and says so.
+        // is an output name from Devices.Outputs(); blank is Windows' default.
+        // A name no longer present (headset unplugged) falls back to the default
+        // and says so.
         public static bool Play(byte[] wav, long gen, string device = "")
         {
             int? number = Devices.OutputNumber(device);
             if (number == null) Engine.Send(new { ev = "deviceMissing", kind = "output", name = device });
-            return number is int n && n >= 0 ? PlayOn(wav, gen, n) : PlayDefault(wav, gen);
+            return PlayOn(wav, gen, number is int n && n >= 0 ? n : WAVE_MAPPER);
         }
 
-        // PlayOn plays on one WinMM output device. PlaySound cannot pick a
-        // device, so this goes through WaveOut — but with the whole clip already
+        // PlayOn plays on one WinMM output device, with the whole clip already
         // in memory and a generous buffer, which is what keeps it from breaking
         // up while the next sentence is being synthesized.
         static bool PlayOn(byte[] wav, long gen, int number)
@@ -178,33 +193,6 @@ namespace AglinkVoice
             return !p.Stopped;
         }
 
-        static bool PlayDefault(byte[] wav, long gen)
-        {
-            TimeSpan length;
-            using (var reader = new WaveFileReader(new MemoryStream(wav))) length = reader.TotalTime;
-            var p = new Playing { Gen = gen };
-            var pin = GCHandle.Alloc(wav, GCHandleType.Pinned); // Windows reads it while it plays
-            try
-            {
-                lock (mu)
-                {
-                    if (gen <= stoppedGen) return false;
-                    StopLocked();
-                    if (!PlaySound(pin.AddrOfPinnedObject(), IntPtr.Zero, SND_MEMORY | SND_ASYNC | SND_NODEFAULT))
-                        throw new InvalidOperationException("재생하지 못했어요");
-                    cur = p;
-                }
-                p.Done.Wait(length + TimeSpan.FromMilliseconds(80));
-                lock (mu) if (cur == p) cur = null;
-                return !p.Stopped;
-            }
-            finally
-            {
-                lock (mu) if (cur == null) PlaySound(IntPtr.Zero, IntPtr.Zero, 0); // nothing still reads the buffer
-                pin.Free();
-            }
-        }
-
         public static void Stop(long gen = long.MaxValue)
         {
             lock (mu)
@@ -218,12 +206,8 @@ namespace AglinkVoice
         {
             if (cur == null) return;
             cur.Stopped = true;
-            if (curOut != null)
-            {
-                curOut.Stop();
-                curOut = null;
-            }
-            else PlaySound(IntPtr.Zero, IntPtr.Zero, 0);
+            curOut?.Stop();
+            curOut = null;
             cur.Done.Set(); // releases the waiting Play
             cur = null;
         }

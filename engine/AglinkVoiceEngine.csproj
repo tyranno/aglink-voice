@@ -24,6 +24,7 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
     <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
     <PackageReference Include="NAudio.Core" Version="2.2.1" />
+    <PackageReference Include="SoundTouch.Net" Version="2.3.2" />
   </ItemGroup>
 
 </Project>
