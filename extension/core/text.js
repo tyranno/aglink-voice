@@ -148,6 +148,13 @@ const ONCE_TEXT_RE = new RegExp(String.raw`(${NO_SPEECH}\s*((글|글자|텍스�
 const SHORT_RE = cmdRE(String.raw`(방금\s*(거|답변)\s*(을|를)?\s*)?(좀\s*)?(요약|짧게|간단히|간단하게)\s*(해서\s*)?(다시\s*)?(읽어|말해|들려|얘기해)`);
 // "목소리 등록해 줘" records the user's voice; "목소리 등록 해제해 줘" / "목소리
 // 지워 줘" forgets it. Whole sentences only: "영상에서 목소리 지우는 법" is a question.
+// Pause / resume listening without switching the mic off: while paused nothing
+// said is sent or acted on except RESUME_RE and MIC_OFF_RE. MIC_OFF_RE switches
+// voice off altogether; the user turns it on again by hand.
+const PAUSE_RE = /^(음성\s*)?(인식|듣기|받아\s*쓰기|받아쓰기)\s*(을|를|은|는)?\s*(좀\s*)?(멈춰|멈춰\s*줘|멈춰\s*주세요|멈춰라|멈추자|멈출게|중지|중지해|중지해\s*줘|중단|중단해|그만|그만해|정지|정지해|꺼|꺼\s*줘|끄기)[.!?~\s]*$/;
+const RESUME_RE = /^(다시\s*)(인식|들어|듣기|받아\s*써|받아\s*쓰기|받아쓰기)\s*(을|를)?\s*(해|해\s*줘|해\s*주세요|하자|시작|시작해|시작해\s*줘|줘|봐)?[.!?~\s]*$|^(인식|듣기)\s*(을|를)?\s*(다시\s*)?(시작|시작해|시작해\s*줘|재개|재개해|재개해\s*줘|켜|켜\s*줘)[.!?~\s]*$/;
+const MIC_OFF_RE = /^(마이크|음성)\s*(을|를|좀)?\s*(꺼|꺼\s*줘|꺼\s*주세요|꺼라|끄자|끌게|끄기|꺼\s*버려)[.!?~\s]*$/;
+
 const ENROLL_RE = cmdRE(String.raw`(제\s*|내\s*)?목소리\s*(로|를|좀)?\s*(좀\s*)?(등록|저장|기억)\s*(해|하자|해\s*둬|해\s*놔|할래)?`);
 const UNENROLL_RE = cmdRE(String.raw`(제\s*|내\s*|등록한\s*|등록된\s*)?목소리\s*(등록\s*)?(을|를|은)?\s*(좀\s*)?(해제|취소|지워|삭제|지우기|없애)\s*(해|하자)?`);
 const MAX_COMMAND_CHARS = 40; // longer sentences are always meant for the AI
@@ -425,6 +432,10 @@ function parseCommand(text, current = "M2") {
     const set = WAKE_NAME_SET_RE.test(t);
     return { kind: "wakeName", set, name: cleanWakeNames([set ? named[2] : named[1]])[0] || "" };
   }
+  // Before the reading's "멈춰" (hush): "인식 멈춰" pauses listening instead.
+  if (PAUSE_RE.test(t)) return { kind: "pause" };
+  if (RESUME_RE.test(t)) return { kind: "resume" };
+  if (MIC_OFF_RE.test(t)) return { kind: "micOff" };
   if (LISTEN_ALWAYS_RE.test(t)) return { kind: "listen", mode: "always" };
   if (LISTEN_WAKE_RE.test(t)) return { kind: "listen", mode: "wake" };
   if (TEXT_ONLY_ON_RE.test(t)) return { kind: "textOnly", on: true };

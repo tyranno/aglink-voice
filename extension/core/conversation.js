@@ -89,6 +89,7 @@ class Conversation extends EventEmitter {
     this.now = now;
 
     this.on_ = false; // voice is on
+    this.paused = false; // "인식 멈춰": listening, but only "다시 인식해" / "마이크 꺼" act
     this.conv = false; // in conversation (the mic takes what is said)
     this.phase = "idle"; // idle | listening | transcribing
     this.speaking = false;
@@ -138,6 +139,7 @@ class Conversation extends EventEmitter {
   async start() {
     if (this.on_) return;
     this.on_ = true;
+    this.paused = false;
     await this.engine.call("mic", { on: true, device: this.micDevice() });
     if (this.s.listenMode === "wake") {
       this.log(`waiting for ${quote(T.wakeNameLabel(this.s))}`);
@@ -149,6 +151,7 @@ class Conversation extends EventEmitter {
     if (!this.on_) return;
     this.endConversation();
     this.on_ = false;
+    this.paused = false;
     this.wake = null;
     this.engine.call("mic", { on: false }).catch(() => {});
     this.render();
@@ -205,6 +208,7 @@ class Conversation extends EventEmitter {
       if (this.problem) [phase, label] = ["problem", this.problem];
       else if (this.flashText) [phase, label] = ["note", this.flashText];
       else if (this.enrolling) [phase, label] = ["listening", "목소리 등록 중"];
+      else if (this.paused && !this.speaking) [phase, label] = ["note", "인식 멈춤 — “다시 인식해” 하면 들어요"];
       else if (this.phase === "listening") [phase, label] = ["listening", "듣는 중 — 말씀하세요"];
       else if (this.phase === "transcribing") [phase, label] = ["transcribing", "알아듣는 중"];
       else if (this.speaking) [phase, label] = ["speaking", "답변을 읽는 중"];
@@ -630,6 +634,11 @@ class Conversation extends EventEmitter {
         relisten = true;
         return;
       }
+      if (this.paused) {
+        relisten = true;
+        if (!(await this.runPausedCommand(text))) this.log(`paused: ignored ${quote(text, 20)}`);
+        return;
+      }
       if (T.stopMatch(text, this.s)) {
         this.log("stop");
         this.endConversation("음성 대화를 끝냈어요");
@@ -770,6 +779,10 @@ class Conversation extends EventEmitter {
       }
       const text = await this.transcribe(wav);
       if (!text || this.wake !== w) return;
+      if (this.paused) {
+        if (!(await this.runPausedCommand(text))) this.log(`paused: ignored ${quote(text, 20)}`);
+        return;
+      }
       const end = T.wakeMatch(text, this.s);
       if (end < 0) {
         this.log(`wake: not the name ${quote(text, 20)}`);
@@ -941,6 +954,16 @@ class Conversation extends EventEmitter {
     return this.say("이 빠르기로 읽을게요.");
   }
 
+  // runPausedCommand is all that is heard while paused: only resuming and
+  // switching the mic off are carried out. True when text was one of them.
+  async runPausedCommand(text) {
+    const c = T.parseCommand(text, this.s.voice);
+    if (!c || (c.kind !== "resume" && c.kind !== "micOff")) return false;
+    this.log(`command ${quote(text)}`);
+    await this.runCommand(text);
+    return true;
+  }
+
   // runCommand carries out text if it is one of the commands; false means it
   // goes to Claude Code.
   async runCommand(text) {
@@ -948,6 +971,28 @@ class Conversation extends EventEmitter {
     const c = T.parseCommand(text, s.voice);
     if (!c) return false;
     switch (c.kind) {
+      case "pause":
+        this.paused = true;
+        this.log("paused");
+        this.render();
+        void this.say("인식을 멈출게요. 다시 인식해, 라고 하시면 들을게요.");
+        break;
+      case "resume":
+        if (!this.paused) {
+          void this.say("이미 듣고 있어요.");
+          break;
+        }
+        this.paused = false;
+        this.log("resumed");
+        this.render();
+        void this.say("다시 들을게요. 말씀하세요.");
+        break;
+      case "micOff":
+        this.log("mic off by voice");
+        // Read the goodbye first: switching off stops the engine that reads it.
+        await this.say("마이크를 끌게요.").catch(() => {});
+        this.emit("off");
+        break;
       case "wakeName": {
         if (!c.name) {
           void this.say("부를 이름은 두 글자에서 여덟 글자로 정해 주세요.");

@@ -262,6 +262,8 @@ function html(nonce) {
   <tr><td>글로만 보여 줘 / 다시 말로 해 줘</td><td>글로만 답하기</td></tr>
   <tr><td>끼어들기 켜 줘 / 꺼 줘</td><td>끼어들기</td></tr>
   <tr><td>잠깐</td><td>읽기 멈춤</td></tr>
+  <tr><td>인식 멈춰 / 다시 인식해</td><td>듣기 잠시 멈춤 (멈춘 동안은 "다시 인식해"와 "마이크 꺼"만 받아요)</td></tr>
+  <tr><td>마이크 꺼</td><td>음성 끄기 (다시 켜기는 Ctrl+Alt+V)</td></tr>
   <tr><td>새 대화 시작해 줘</td><td>Claude Code 새 대화</td></tr>
   <tr><td>부르는 이름을 자비스로 바꿔 줘</td><td>호출어</td></tr>
   <tr><td>목소리 등록해 줘 / 목소리 등록 해제해 줘</td><td>내 목소리</td></tr>

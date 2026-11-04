@@ -225,3 +225,44 @@ test("the reading plays on the picked output, and a missing device is logged", a
   engine.emit("deviceMissing", { kind: "mic", name: "머리에 거는 수화기(S3)" });
   assert.ok(logs.some((m) => /not connected/.test(m) && /S3/.test(m)), logs.join("\n"));
 });
+
+test("인식 멈춰 holds everything until 다시 인식해; 마이크 꺼 switches voice off", async () => {
+  const { conv, engine, sent, feed, until } = setup({ settings: { listenMode: "always" } });
+  const listening = () => until(() => !conv.speaking && conv.phase === "listening", "listening");
+  const say = async (text) => {
+    await listening();
+    engine.text = text;
+    await feed(0.001, 700); // the room: the recorder learns the noise first
+    await feed(0.2, 800);
+    await feed(0.001, 2500);
+  };
+  await conv.start();
+  assert.ok(conv.conv, "always: listening at once");
+
+  await say("인식 멈춰");
+  await until(() => conv.paused, "paused");
+  await until(() => !conv.speaking, "the confirmation read");
+  assert.match(conv.state().label, /인식 멈춤/);
+
+  await say("오늘 할 일 정리해 줘");
+  await sleep(50);
+  assert.deepStrictEqual(sent, [], "nothing is sent while paused");
+
+  await say("마이크 꺼 줘 그런데"); // not exactly the command: still ignored
+  await sleep(50);
+  assert.ok(conv.isOn && conv.paused);
+
+  await say("다시 인식해");
+  await until(() => !conv.paused, "resumed");
+
+  await say("오늘 할 일 정리해 줘");
+  await until(() => sent.length === 1, "sent after resume");
+  assert.deepStrictEqual(sent, ["오늘 할 일 정리해 줘"]);
+
+  let off = false;
+  conv.on("off", () => (off = true));
+  conv.onReply("정리했어요.");
+  await until(() => !conv.speaking && conv.phase === "listening", "listening again");
+  await say("마이크 꺼");
+  await until(() => off, "the off event");
+});

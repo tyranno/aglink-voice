@@ -60,3 +60,12 @@ test("wake names in another language", () => {
   assert.ok(T.wakeMatch("Hey Jarvis, 오늘 일정", { wakeDefault: false, wakeNames: ["HeyJarvis"] }) >= 0);
   assert.ok(T.wakeMatch("자비스 오늘 일정", { wakeDefault: false, wakeNames: ["Jarvis", "자비스"] }) >= 0);
 });
+
+test("pause, resume and mic-off are their own commands; a bare 멈춰 still stops the reading", () => {
+  for (const s of ["인식 멈춰", "인식 멈춰.", "음성 인식 멈춰 줘", "인식 중지", "듣기 그만", "받아쓰기 멈춰"]) assert.deepStrictEqual(T.parseCommand(s), { kind: "pause" }, s);
+  for (const s of ["다시 인식해", "다시 인식해 줘.", "다시 들어", "인식 다시 시작해", "인식 재개해"]) assert.deepStrictEqual(T.parseCommand(s), { kind: "resume" }, s);
+  for (const s of ["마이크 꺼", "마이크 꺼 줘.", "음성 꺼", "마이크를 꺼라"]) assert.deepStrictEqual(T.parseCommand(s), { kind: "micOff" }, s);
+  assert.deepStrictEqual(T.parseCommand("멈춰"), { kind: "hush" }, "bare 멈춰 still stops the reading");
+  // Mentioning them in a request still goes to Claude Code.
+  for (const s of ["인식 멈춰 버튼을 화면에 추가해 줘", "마이크 꺼지는 버그 고쳐 줘", "다시 인식해서 정리해 줘"]) assert.strictEqual(T.parseCommand(s), null, s);
+});
