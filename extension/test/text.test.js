@@ -69,3 +69,13 @@ test("pause, resume and mic-off are their own commands; a bare 멈춰 still stop
   // Mentioning them in a request still goes to Claude Code.
   for (const s of ["인식 멈춰 버튼을 화면에 추가해 줘", "마이크 꺼지는 버그 고쳐 줘", "다시 인식해서 정리해 줘"]) assert.strictEqual(T.parseCommand(s), null, s);
 });
+
+test("a dialogue is told by its speaker dashes, with or without a space after them", () => {
+  const turns = (s) => (s.match(T.DIALOGUE_RE) || []).length;
+  assert.strictEqual(turns("- 그쵸. - 네."), 2);
+  assert.strictEqual(turns("-뭐가 있는가? -뭐가 있는가?"), 2);
+  assert.strictEqual(turns("-아기가 스냅금 친다면서. -네. -그럴 것 같은데."), 3);
+  assert.strictEqual(turns("메일은 e-mail 로 보내 줘"), 0, "a hyphen inside a word");
+  assert.strictEqual(turns("내일은 -5도래"), 0, "a minus sign");
+  assert.strictEqual(turns("3-4시 사이에 회의"), 0);
+});

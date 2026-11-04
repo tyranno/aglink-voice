@@ -30,13 +30,16 @@ const CONV_NO_SPEECH_MS = 20000; // the mic is re-opened after this much silence
 const CONV_RETRY_MS = 5000;
 const NOISE_LEARN_MS = 400;
 const MIN_THRESHOLD = 0.012;
+const MIN_FLOOR = 0.005; // the speech floor never goes under this, however quiet the user
+const FLOOR_OF_USER_LEVEL = 0.3; // the floor as a share of the user's speaking level
+const USER_LEVEL_MIN_N = 3; // clips heard before the user's level is trusted
 const BARGE_SEGMENT_MS = 700;
 const BARGE_MAX_SEGMENT_MS = 3000;
 const BARGE_MIN_SPEECH_MS = 400;
 const BARGE_MIN_LOUD_CHUNKS = 8; // ~0.4 s above the echo floor
 const BARGE_PREROLL_CHUNKS = 14;
 const MAX_CLIP_MS = 60000;
-const PREROLL_MS = 300;
+const PREROLL_MS = 600; // a soft start sits below the floor: keep what came just before it
 const ENROLL_MS = 15000;
 const ENROLL_MIN_S = 5;
 const SPEAKER_MIXED_DROP = 0.1;
@@ -346,8 +349,20 @@ class Conversation extends EventEmitter {
     return score === -1 || score >= min;
   }
 
+  // transcribe recognises a clip turned up to a steady loudness first (quiet
+  // headset mics are heard much worse); the voice check uses the clip as it is.
   async transcribe(wav) {
-    return String((await this.engine.call("transcribe", { wav: wav.toString("base64") })).text || "").trim();
+    return String((await this.engine.call("transcribe", { wav: A.loudForSpeech(wav).toString("base64") })).text || "").trim();
+  }
+
+  // speechFloor is the lowest level that counts as speech. Fixed at
+  // MIN_THRESHOLD it sat right at a Bluetooth headset's speaking level, so soft
+  // syllables read as silence: the start of what was said was cut and a pause
+  // in the middle ended it. Once the user's own level is known, the floor
+  // follows it down (never under MIN_FLOOR, above which room hiss stays).
+  speechFloor() {
+    if (this.userLevel.n < USER_LEVEL_MIN_N || !(this.userLevel.level > 0)) return MIN_THRESHOLD;
+    return Math.max(MIN_FLOOR, Math.min(MIN_THRESHOLD, this.userLevel.level * FLOOR_OF_USER_LEVEL));
   }
 
   // ---- the echo floor ----
@@ -454,7 +469,7 @@ class Conversation extends EventEmitter {
     const ref = this.refLevel(now);
     if (ref > 0.01) this.noteEchoRatio(level / ref);
     const echoFloor = this.echoGain !== null ? this.echoGain * ref * ECHO_MARGIN : 0;
-    const threshold = Math.max(MIN_THRESHOLD, rec.noise * 3, echoFloor);
+    const threshold = Math.max(this.speechFloor(), rec.noise * 3, echoFloor);
     if (level > threshold) {
       if (rec.first < 0) {
         rec.first = rec.chunks.length - 1;
@@ -740,7 +755,7 @@ class Conversation extends EventEmitter {
       w.noiseN++;
       return;
     }
-    if (level > Math.max(MIN_THRESHOLD, w.noise * 3)) {
+    if (level > Math.max(this.speechFloor(), w.noise * 3)) {
       if (w.first < 0) {
         w.first = w.chunks.length - 1;
         w.firstAt = now;
@@ -872,6 +887,11 @@ class Conversation extends EventEmitter {
       if (this.s.barge && !this.rec && this.phase === "idle") this.startRecording(true);
       else if (!this.rec) this.resumeListening(); // taking turns: the mic opens after the reading
     }
+    // For the log: the wait from the answer's arrival (the Stop hook) to the
+    // first sound, and how much of it the first sentence's synthesis took.
+    const arrived = this.answerAt || Date.now();
+    this.answerAt = 0;
+    let synthStart = Date.now();
     try {
       let next = this.synthesize(sentences[0]);
       for (let i = 0; i < sentences.length && gen === this.gen; i++) {
@@ -881,6 +901,7 @@ class Conversation extends EventEmitter {
         } catch (err) {
           this.log(`reading skipped a sentence: ${err?.message || err}`); // not the rest of the reply
         }
+        if (i === 0) this.log(`reading: first sound ${Date.now() - arrived} ms after the answer arrived (first sentence ${sentences[0].length} chars, synthesis ${Date.now() - synthStart} ms)`);
         next = i + 1 < sentences.length ? this.synthesize(sentences[i + 1]) : null;
         if (next) next.catch(() => {});
         if (wav) await this.play(wav, gen);

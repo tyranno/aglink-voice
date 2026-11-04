@@ -133,12 +133,43 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
 
   // ---- the answers: Claude Code's Stop hook posts each finished turn ----
 
+  // answerLag is how long after Claude Code wrote its last answer to the
+  // transcript the hook reached us, or null when that cannot be told. Only for
+  // the log: it shows how much of the wait before the reading is the hook's.
+  function answerLag(transcript, receivedAt) {
+    try {
+      if (!transcript) return null;
+      const size = fs.statSync(transcript).size;
+      const n = Math.min(size, 256 * 1024);
+      const b = Buffer.alloc(n);
+      const fd = fs.openSync(transcript, "r");
+      try {
+        fs.readSync(fd, b, 0, n, size - n);
+      } finally {
+        fs.closeSync(fd);
+      }
+      const lines = b.toString("utf8").split("\n");
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (!lines[i].includes('"assistant"')) continue;
+        try {
+          const e = JSON.parse(lines[i]);
+          if (e.type === "assistant" && e.timestamp) return receivedAt - Date.parse(e.timestamp);
+        } catch {}
+      }
+    } catch {}
+    return null;
+  }
+
   function onTurn(h) {
     // Claude Code runs the hook for every session on this PC (the CLI,
     // aglink's); only VS Code's answers are read.
     if (h.entrypoint && h.entrypoint !== "claude-vscode") return;
     const md = h.last_assistant_message;
     if (!md) return;
+    const receivedAt = Date.now();
+    const lag = answerLag(h.transcript_path, receivedAt);
+    log(`voice: answer arrived${lag != null ? ` ${lag} ms after Claude Code wrote it` : ""}`);
+    if (conv) conv.answerAt = receivedAt;
     if (conv && conv.onReply(md)) return; // the answer to what was said
     if (!settings.get().readTyped || elsewhere()) return;
     void reader().then((c) => {

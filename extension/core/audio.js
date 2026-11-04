@@ -52,6 +52,33 @@ function encodeWav(samples, rate = RATE) {
   return buf;
 }
 
+// loudForSpeech turns a quiet clip made by encodeWav up to a steady loudness
+// for recognition. A Bluetooth headset's mic arrives far below a desk mic, and
+// Whisper hears quiet speech worse; the voice check keeps the clip as it was.
+// The gain stops before the loudest sample clips and never exceeds MAX_GAIN, so
+// a clip of near silence is not blown up into hiss. Returns wav when it is
+// loud enough already.
+const SPEECH_RMS = 0.1; // about -20 dBFS
+const MAX_GAIN = 20;
+function loudForSpeech(wav) {
+  if (!wav || wav.length <= 44) return wav;
+  const n = (wav.length - 44) >> 1;
+  let sum = 0;
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    const v = wav.readInt16LE(44 + i * 2) / 32768;
+    sum += v * v;
+    if (Math.abs(v) > peak) peak = Math.abs(v);
+  }
+  const level = Math.sqrt(sum / n);
+  if (!(level > 0) || !(peak > 0)) return wav;
+  const gain = Math.min(MAX_GAIN, SPEECH_RMS / level, 0.95 / peak);
+  if (gain <= 1.2) return wav;
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = (wav.readInt16LE(44 + i * 2) / 32768) * gain;
+  return encodeWav(out, wav.readUInt32LE(24));
+}
+
 // clipSeconds is how long a 16 kHz clip made by encodeWav is.
 function clipSeconds(wav) {
   return wav ? (wav.length - 44) / (RATE * 2) : 0;
@@ -130,4 +157,4 @@ function cosine(a, b) {
   return na && nb ? dot / Math.sqrt(na * nb) : 0;
 }
 
-module.exports = { RATE, REF_FRAME_MS, pcmToFloat, rms, concat, encodeWav, clipSeconds, wavEnvelope, chimeWav, normalize, cosine };
+module.exports = { RATE, REF_FRAME_MS, pcmToFloat, rms, concat, encodeWav, loudForSpeech, clipSeconds, wavEnvelope, chimeWav, normalize, cosine };

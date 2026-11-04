@@ -73,7 +73,9 @@ namespace AglinkVoice
         static TextToSpeech? tts;
         static readonly Dictionary<string, Style> styles = new();
         static readonly object mu = new();
-        const int Steps = 8;
+        // Diffusion steps per sentence: fewer is faster (about linearly) and a
+        // little rougher. The extension may ask for fewer to start reading sooner.
+        public const int DefaultSteps = 8;
 
         static string Dir => Path.Combine(Engine.Root, "models", "supertonic");
 
@@ -83,8 +85,9 @@ namespace AglinkVoice
             return Directory.Exists(d) ? Directory.GetFiles(d, "*.json").Select(Path.GetFileNameWithoutExtension).OfType<string>().OrderBy(s => s).ToArray() : Array.Empty<string>();
         }
 
-        public static byte[] Synthesize(string text, string voice, float speed)
+        public static byte[] Synthesize(string text, string voice, float speed, int steps = DefaultSteps)
         {
+            steps = Math.Clamp(steps, 2, 16);
             text = text.Trim();
             if (text.Length == 0) throw new ArgumentException("빈 문장");
             if (voice.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || voice.Contains("..")) voice = "M2";
@@ -99,7 +102,7 @@ namespace AglinkVoice
                     style = Helper.LoadVoiceStyle(new List<string> { p });
                     styles[voice] = style;
                 }
-                var (wav, duration) = tts.Call(text, "ko", style, Steps, speed);
+                var (wav, duration) = tts.Call(text, "ko", style, steps, speed);
                 int len = Math.Min(wav.Length, (int)(tts.SampleRate * duration[0]));
                 return Wav.Encode(wav[..len], tts.SampleRate);
             }

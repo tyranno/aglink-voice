@@ -209,7 +209,9 @@ function parseVoiceName(text, current) {
   return `${gender}${n || 2}`;
 }
 
-const DIALOGUE_RE = /(?:^|\s)-\s/g; // a speaker turn in whisper's output
+// A speaker turn in whisper's output: "- 그쵸." or, as it also writes them,
+// "-그쵸." — but not a hyphen inside a word ("e-mail") or a minus ("-5도").
+const DIALOGUE_RE = /(?:^|\s)-(?=\s|[^\s\d-])/g;
 
 // cleanProse flattens one markdown paragraph to plain spoken text. Anything
 // there to be looked at rather than heard — links, URLs, paths, inline code

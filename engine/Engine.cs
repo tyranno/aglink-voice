@@ -11,7 +11,8 @@
 // not shared between VS Code windows.
 //
 //   {"id":1,"op":"status"}                          → {"id":1,"ok":true,"whisper":"gpu"|"cpu"|"starting"|"off",...}
-//   {"id":2,"op":"tts","text":"…","voice":"M2","speed":1.0}  → {"id":2,"ok":true,"wav":"<base64>"}
+//   {"id":2,"op":"tts","text":"…","voice":"M2","speed":1.0,"steps":8}  → {"id":2,"ok":true,"wav":"<base64>"}
+//                                                    steps: 2–16, default 8; fewer is faster and a little rougher
 //   {"id":3,"op":"play","wav":"<base64>","gen":7,"device":""}  → answered when it has played (or was stopped);
 //                                                    device: an output name from "devices", blank = Windows' default
 //   {"id":10,"op":"devices"}                        → {"id":10,"ok":true,"inputs":[names],"outputs":[names]}
@@ -110,7 +111,8 @@ namespace AglinkVoice
                             string text = req["text"]?.GetValue<string>() ?? "";
                             string voice = req["voice"]?.GetValue<string>() ?? "M2";
                             float speed = (float)(req["speed"]?.GetValue<double>() ?? 1.0);
-                            Send(new { id, ok = true, wav = Convert.ToBase64String(Speech.Synthesize(text, voice, speed)) });
+                            int steps = req["steps"]?.GetValue<int>() ?? Speech.DefaultSteps;
+                            Send(new { id, ok = true, wav = Convert.ToBase64String(Speech.Synthesize(text, voice, speed, steps)) });
                             break;
                         }
                     case "play":

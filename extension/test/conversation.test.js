@@ -266,3 +266,18 @@ test("인식 멈춰 holds everything until 다시 인식해; 마이크 꺼 switc
   await say("마이크 꺼");
   await until(() => off, "the off event");
 });
+
+test("a quiet speaker's soft speech still counts once their level is known, and recognition gets the clip turned up", async () => {
+  const { conv, engine } = setup({ settings: { listenMode: "always" }, store: { userLevel: { level: 0.025, n: 10 } } });
+  assert.ok(conv.speechFloor() < 0.012, `floor ${conv.speechFloor()}`);
+  assert.ok(conv.speechFloor() >= 0.005);
+  const fresh = setup().conv;
+  assert.strictEqual(fresh.speechFloor(), 0.012, "unknown level: the fixed floor");
+
+  const quiet = A.encodeWav(new Float32Array(8000).fill(0).map((_, i) => Math.sin(i / 5) * 0.02));
+  await conv.transcribe(quiet);
+  const sent = Buffer.from(engine.ops("transcribe").pop().wav, "base64");
+  let s = 0;
+  for (let i = 0; i < 8000; i++) { const v = sent.readInt16LE(44 + i * 2) / 32768; s += v * v; }
+  assert.ok(Math.sqrt(s / 8000) > 0.05, "turned up for Whisper");
+});
