@@ -841,7 +841,7 @@ class Conversation extends EventEmitter {
   // ---- reading aloud ----
 
   speechMode() {
-    return this.s.summary ? "short" : "gist";
+    return this.s.summary ? "short" : "full";
   }
 
   stopSpeaking() {

@@ -39,6 +39,16 @@ test("speechText reads the point, not the code, tables or links", () => {
   assert.doesNotMatch(s, /func|foo\.go|http|\|/);
 });
 
+test("a summary takes a point from every paragraph, not just the first one", () => {
+  const md = "엔진을 고쳤어요. 빌드도 끝났어요. 시험도 했어요.\n\n원인은 읽기 속도였어요. 빠르면 말을 삼켜요.\n\n그래서 보통 속도로 만들고 빠르기만 올렸어요. 음 높이는 그대로예요.\n\n다시 켜 주세요.";
+  const s = T.speechText(md, "short");
+  assert.match(s, /엔진을 고쳤어요/);
+  assert.match(s, /원인은 읽기 속도였어요/);
+  assert.match(s, /보통 속도로 만들고/);
+  assert.match(s, /다시 켜 주세요/);
+  assert.doesNotMatch(s, /빠르면 말을 삼켜요|음 높이는/);
+});
+
 test("isEcho tells our own reading heard back from the user's words", () => {
   const reply = "여섯 군데를 고쳤어요. 테스트는 모두 통과했어요.";
   assert.ok(T.isEcho("테스트는 모두 통과했어요", reply));
@@ -80,9 +90,10 @@ test("a dialogue is told by its speaker dashes, with or without a space after th
   assert.strictEqual(turns("3-4시 사이에 회의"), 0);
 });
 
-test("a long first sentence is read in two, cut at a comma or a space, never inside a word", () => {
+test("a long first sentence is read in two only at a comma, never at a bare space", () => {
   assert.deepStrictEqual(T.splitLead(["네, 정리했어요.", "다음."], 20), ["네, 정리했어요.", "다음."]);
-  assert.deepStrictEqual(T.splitLead(["오늘 오후 세 시 회의 자료를 정리해서 팀원들에게 메일로 보냈습니다."], 20), ["오늘 오후 세 시 회의 자료를", "정리해서 팀원들에게 메일로 보냈습니다."]);
+  assert.deepStrictEqual(T.splitLead(["오늘 오후 세 시 회의 자료를 정리해서 팀원들에게 메일로 보냈습니다."], 20), ["오늘 오후 세 시 회의 자료를 정리해서 팀원들에게 메일로 보냈습니다."]);
+  assert.deepStrictEqual(T.splitLead(["네, 시험용으로 여러 문단을 읽어 드릴게요."], 20), ["네, 시험용으로 여러 문단을 읽어 드릴게요."]);
   assert.deepStrictEqual(T.splitLead(["설정 파일을 고쳤고요, 다시 빌드해서 확인까지 마쳤습니다."], 20), ["설정 파일을 고쳤고요,", "다시 빌드해서 확인까지 마쳤습니다."]);
   const word = "가나다라마바사아자차카타파하가나다라마바사";
   assert.deepStrictEqual(T.splitLead([word], 20), [word]);

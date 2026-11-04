@@ -20,8 +20,8 @@ const LISTEN_WAKE_RE = /^(호출어|부르기|부르면|아글링크\s*(로|하�
 const WAKE_NAME_SET_RE = /^(?:(?:부르는|호출|깨우는)\s*이름|호출어)\s*(을|를)?\s*["“']?(.{1,8}?)["”']?\s*(으로|로)\s*(바꿔|정해|해|지정해|설정해)\S*(\s*(줘|주세요))?[.!?~\s]*$/;
 const WAKE_NAME_ADD_RE = /^["“']?(.{1,8}?)["”']?\s*(이)?라고\s*(불러도|해도|하면|부르면)\s*(알아들어|대답해|깨어나|켜져|켜)\S*(\s*(줘|주세요))?[.!?~\s]*$/;
 const SPEAK_LIMITS = {
-  short: { chars: 220, sentences: 2, points: 3 },
-  gist: { chars: 600, sentences: 3, points: 6 },
+  short: { chars: 360, sentences: 2, points: 5 },
+  gist: { chars: 700, sentences: 3, points: 8 },
 };
 const MAX_FULL_CHARS = 4000;
 const CUT_MARGIN = 80; // a full reading this much longer than the summary means it was cut
@@ -237,9 +237,10 @@ function cleanProse(p) {
 
 // speechText picks what is worth hearing from a reply, as a spoken summary of
 // all of it: the opening prose paragraph (plus the next one when the first is a
-// bare "네."), the first sentence of each top-level list item — the point it
-// makes — and a closing question to the user. Code, tables, headings and a
-// trailing "출처:" list never count.
+// bare "네."), then the first sentence of every later paragraph and of each
+// top-level list item — the point it makes — in the reply's order, and a
+// closing question to the user. Code, tables, headings and a trailing "출처:"
+// list never count.
 const ITEM_LABEL_RE = /^[^.!?:：\d]{1,20}[:：]\s*/; // no digits: "10:30" is not a label
 
 function speakableParas(md) {
@@ -256,7 +257,7 @@ function speechText(md, mode = "gist") {
   const { chars: MAX_SPEAK_CHARS, sentences: MAX_SPEAK_SENTENCES, points: MAX_SPEAK_POINTS } = SPEAK_LIMITS[mode] || SPEAK_LIMITS.gist;
   let opening = "";
   let i = 0;
-  for (; i < paras.length && opening.length < MIN_GIST_CHARS; i++) {
+  for (; i < paras.length && opening.length < MIN_GIST_CHARS && sentencesOf(opening).length < 2; i++) {
     if (LIST_ITEM_RE.test(paras[i])) break; // a reply that opens with a list
     const prose = cleanProse(paras[i]);
     if (prose) opening = opening ? `${opening} ${prose}` : prose;
@@ -281,10 +282,15 @@ function speechText(md, mode = "gist") {
       continue;
     }
     const prose = cleanProse(para);
-    if (prose) closing = prose;
+    if (!prose) continue;
+    const point = sentencesOf(prose)[0];
+    if (point) points.push(point);
+    closing = prose;
   }
+  // A point too long for what is left is passed over, so the shorter ones
+  // after it still give the rest of the reply.
   for (const point of points.slice(0, MAX_SPEAK_POINTS)) {
-    if ((out + point).length > MAX_SPEAK_CHARS) break;
+    if ((out + point).length > MAX_SPEAK_CHARS) continue;
     out += ` ${point}`;
   }
   // A question at the end ("진행할까요?") is what the user has to answer.
@@ -311,29 +317,25 @@ function fullSpeechText(paras) {
   return out;
 }
 
+// A period between digits ("1.5배") does not end a sentence.
 function sentencesOf(text) {
-  return (text || "").match(/[^.!?。？！]+[.!?。？！]*\s*/g) || [];
+  return (text || "").match(/(?:[^.!?。？！]|\.(?=\d))+[.!?。？！]*\s*/g) || [];
 }
 
 // splitSentences keeps each utterance short: speechSynthesis stalls on long
 // ones, and with Supertonic the first sentence starts playing sooner.
 // splitLead reads a long first sentence in two: a lead of at most max
-// characters, cut where a pause is natural (after a comma, else at a space),
-// and the rest. The lead is synthesized first and fast, so the reading starts
-// soon; the rest is made while it plays. Nothing is cut when no good place is
-// found — a word is never split.
+// characters, cut after a comma, and the rest. The lead is synthesized first
+// and fast, so the reading starts soon; the rest is made while it plays.
+// Nothing is cut without a comma: a lead cut at a bare space ("…문단을 읽어")
+// breaks the phrase and leaves an audible gap before the rest.
 function splitLead(sentences, max = 20) {
   const first = sentences[0];
   if (!first || first.length <= max) return sentences;
   const head = first.slice(0, max + 1);
-  let cut = -1;
   const comma = Math.max(head.lastIndexOf(", "), head.lastIndexOf("，"));
-  if (comma >= 6) cut = comma + 1;
-  else {
-    const space = head.lastIndexOf(" ");
-    if (space >= 6) cut = space;
-  }
-  if (cut < 0) return sentences;
+  if (comma < 6) return sentences;
+  const cut = comma + 1;
   const lead = first.slice(0, cut).trim();
   const rest = first.slice(cut).trim();
   if (!lead || !rest) return sentences;
@@ -341,7 +343,7 @@ function splitLead(sentences, max = 20) {
 }
 
 function splitSentences(text) {
-  const parts = text.match(/[^.!?。？！\n]+[.!?。？！]*\s*/g) || [text];
+  const parts = text.match(/(?:[^.!?。？！\n]|\.(?=\d))+[.!?。？！]*\s*/g) || [text];
   const out = [];
   let cur = "";
   for (const p of parts) {

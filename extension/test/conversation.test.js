@@ -284,11 +284,11 @@ test("a quiet speaker's soft speech still counts once their level is known, and 
 
 test("a long first sentence is read lead-first, every piece at full quality", async () => {
   const { conv, engine } = setup();
-  conv.onReply("오늘 오후 세 시 회의 자료를 정리해서 팀원들에게 메일로 보냈습니다. 확인해 주세요.");
-  await conv.speak("오늘 오후 세 시 회의 자료를 정리해서 팀원들에게 메일로 보냈습니다. 확인해 주세요.", "full");
+  conv.onReply("회의 자료를 정리했고요, 팀원들에게 메일로 보냈습니다. 확인해 주세요.");
+  await conv.speak("회의 자료를 정리했고요, 팀원들에게 메일로 보냈습니다. 확인해 주세요.", "full");
   const tts = engine.ops("tts").filter((c) => !/아글링크|목소리예요/.test(c.text));
   assert.ok(tts.length >= 3, JSON.stringify(tts.map((c) => c.text)));
-  const first = tts.findIndex((c) => c.text === "오늘 오후 세 시 회의 자료를");
+  const first = tts.findIndex((c) => c.text === "회의 자료를 정리했고요,");
   assert.ok(first >= 0, "the lead was read on its own");
   for (const c of tts) assert.strictEqual(c.steps, undefined, "no piece uses fewer steps");
 });
