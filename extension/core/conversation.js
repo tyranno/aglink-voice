@@ -39,6 +39,8 @@ const BARGE_MIN_SPEECH_MS = 400;
 const BARGE_MIN_LOUD_CHUNKS = 8; // ~0.4 s above the echo floor
 const BARGE_PREROLL_CHUNKS = 14;
 const MAX_CLIP_MS = 60000;
+const LEAD_MAX_CHARS = 20; // the first piece read: short, so its synthesis starts the reading soon
+const LEAD_STEPS = 4; // synthesis steps for that piece (the rest uses the engine's default)
 const PREROLL_MS = 600; // a soft start sits below the floor: keep what came just before it
 const ENROLL_MS = 15000;
 const ENROLL_MIN_S = 5;
@@ -864,9 +866,12 @@ class Conversation extends EventEmitter {
     }
   }
 
-  synthesize(sentence) {
+  // steps (optional) asks for fewer synthesis steps: faster, a little rougher.
+  synthesize(sentence, steps) {
     const s = this.s;
-    return this.engine.call("tts", { text: sentence, voice: s.voice, speed: s.speed }).then((r) => Buffer.from(r.wav, "base64"));
+    const args = { text: sentence, voice: s.voice, speed: s.speed };
+    if (steps) args.steps = steps;
+    return this.engine.call("tts", args).then((r) => Buffer.from(r.wav, "base64"));
   }
 
   // speak reads md's spoken summary (mode "short" / "gist") or all of it
@@ -876,7 +881,10 @@ class Conversation extends EventEmitter {
     if (!text) return;
     this.stopSpeaking();
     const gen = this.gen;
-    const sentences = T.splitSentences(text);
+    // The wait before the first sound is the first piece's synthesis, which
+    // grows with its length: a long first sentence is read in two, a short
+    // lead made with fewer steps and the rest made while the lead plays.
+    const sentences = T.splitLead(T.splitSentences(text), LEAD_MAX_CHARS);
     this.replyText = text;
     this.speaking = true; // covers the first synthesis, so the mic waits
     this.render();
@@ -893,7 +901,7 @@ class Conversation extends EventEmitter {
     this.answerAt = 0;
     let synthStart = Date.now();
     try {
-      let next = this.synthesize(sentences[0]);
+      let next = this.synthesize(sentences[0], LEAD_STEPS);
       for (let i = 0; i < sentences.length && gen === this.gen; i++) {
         let wav = null;
         try {

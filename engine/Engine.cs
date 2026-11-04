@@ -67,6 +67,13 @@ namespace AglinkVoice
             }
 
             if (!readOnly) StartWhisper();
+            // Load the reading model now, off the request path: done lazily it
+            // added about a second to the first answer read after voice went on.
+            _ = Task.Run(() =>
+            {
+                try { Speech.Warm(); }
+                catch (Exception e) { Log($"reading model warm-up failed: {e.Message}"); }
+            });
             Send(new { ev = "ready" });
 
             var stdin = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));

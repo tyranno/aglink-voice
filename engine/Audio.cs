@@ -85,6 +85,10 @@ namespace AglinkVoice
             return Directory.Exists(d) ? Directory.GetFiles(d, "*.json").Select(Path.GetFileNameWithoutExtension).OfType<string>().OrderBy(s => s).ToArray() : Array.Empty<string>();
         }
 
+        // Warm loads the model and runs it once (the first run is slow too), so
+        // the first answer is read as fast as the rest.
+        public static void Warm() => Synthesize("준비", "M2", 1.0f, 2);
+
         public static byte[] Synthesize(string text, string voice, float speed, int steps = DefaultSteps)
         {
             steps = Math.Clamp(steps, 2, 16);
