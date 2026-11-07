@@ -313,3 +313,75 @@ test("the button says speech is coming in from the first loud sound until the cl
   assert.ok(seen.some((st) => st.hearing), "the change is sent to the button");
   conv.stop();
 });
+
+test("the user talking over the TV is found in a window of the clip, and only their part is sent", async () => {
+  const me = A.normalize([1, 0, 0, 0]);
+  const { conv, engine, sent, feed, until } = setup({ settings: { listenMode: "always", speakerMin: 0.5 }, store: { speaker: { base: me, ref: me } } });
+  // The voice in a clip is the share of it that is loud (the user, close)
+  // against soft (the TV); the words are the TV's plus the user's, or only
+  // the user's for a short clip of them.
+  const loudShare = (b64) => {
+    const w = Buffer.from(b64, "base64");
+    const n = (w.length - 44) / 2;
+    let loud = 0;
+    for (let i = 0; i < n; i += 800) {
+      let peak = 0;
+      for (let j = i; j < Math.min(n, i + 800); j++) peak = Math.max(peak, Math.abs(w.readInt16LE(44 + j * 2)) / 32767);
+      if (peak > 0.3) loud++;
+    }
+    return loud / Math.ceil(n / 800);
+  };
+  const call = engine.call.bind(engine);
+  engine.call = async (op, args = {}) => {
+    if (op === "embed") {
+      engine.calls.push({ op });
+      const f = loudShare(args.wav);
+      return { ok: true, embedding: [f, 1 - f, 0, 0] };
+    }
+    if (op === "transcribe") {
+      engine.calls.push({ op });
+      return { ok: true, text: loudShare(args.wav) > 0.6 ? "지금 설치해." : "미래의 먹거리도 신경 써야 돼요. 지금 설치해." };
+    }
+    return call(op, args);
+  };
+  await conv.start();
+  await until(() => conv.phase === "listening", "the mic");
+  await feed(0.001, 500);
+  await feed(0.1, 8000); // the TV
+  await feed(0.6, 3000); // the user
+  await feed(0.001, 2400);
+  await until(() => sent.length === 1, "the user's request");
+  assert.deepStrictEqual(sent, ["지금 설치해."]);
+  conv.stop();
+});
+
+test("only one early try runs at a time, and one that hears no words drops the noise", async () => {
+  const { conv, engine, feed, until } = setup({ settings: { listenMode: "always" } });
+  let release;
+  let running = 0;
+  let most = 0;
+  const call = engine.call.bind(engine);
+  engine.call = async (op, args = {}) => {
+    if (op !== "transcribe") return call(op, args);
+    engine.calls.push({ op });
+    most = Math.max(most, ++running);
+    await new Promise((r) => (release = r));
+    running--;
+    return { ok: true, text: "" };
+  };
+  await conv.start();
+  await until(() => conv.phase === "listening", "the mic");
+  await feed(0.001, 500);
+  for (let i = 0; i < 4; i++) {
+    await feed(0.2, 400);
+    await feed(0.001, 1000); // a pause long enough for an early try
+  }
+  assert.strictEqual(most, 1, "tries do not pile up");
+  release(); // an older pause: speech came after it, so nothing is dropped
+  await sleep(10);
+  assert.ok(conv.rec.first >= 0);
+  await feed(0.001, 100); // the latest pause is tried now
+  release();
+  await until(() => conv.rec && conv.rec.first < 0, "the noise dropped");
+  conv.stop();
+});

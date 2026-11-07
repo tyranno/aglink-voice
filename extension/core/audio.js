@@ -157,4 +157,15 @@ function cosine(a, b) {
   return na && nb ? dot / Math.sqrt(na * nb) : 0;
 }
 
-module.exports = { RATE, REF_FRAME_MS, pcmToFloat, rms, concat, encodeWav, loudForSpeech, clipSeconds, wavEnvelope, chimeWav, normalize, cosine };
+// wavSlice cuts the from..to seconds out of a clip made by encodeWav.
+function wavSlice(wav, from, to) {
+  const rate = wav.readUInt32LE(24);
+  const a = 44 + Math.max(0, Math.floor(from * rate)) * 2;
+  const b = Math.min(wav.length, 44 + Math.floor(to * rate) * 2);
+  const out = Buffer.concat([wav.subarray(0, 44), wav.subarray(a, Math.max(a, b))]);
+  out.writeUInt32LE(out.length - 8, 4);
+  out.writeUInt32LE(out.length - 44, 40);
+  return out;
+}
+
+module.exports = { RATE, REF_FRAME_MS, pcmToFloat, rms, concat, encodeWav, loudForSpeech, clipSeconds, wavSlice, wavEnvelope, chimeWav, normalize, cosine };

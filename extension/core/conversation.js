@@ -46,6 +46,16 @@ const ENROLL_MS = 15000;
 const ENROLL_MIN_S = 5;
 const SPEAKER_MIXED_DROP = 0.1;
 const SPEAKER_SHORT_S = 1.2;
+// The user talking over the TV makes a long clip that is mostly the TV, and the
+// clip as a whole scores far under the bar. Such a clip is scored again in
+// short windows: the user's own stretch stands out, and only it is sent. A
+// window needs a little more than the bar, since a short stretch of someone
+// else now and then scores high by chance. (Same as the desktop voice.)
+const RESCUE_MIN_S = 3;
+const RESCUE_WINDOW_S = 3;
+const RESCUE_HOP_S = 1.5;
+const RESCUE_MAX_WINDOWS = 12;
+const RESCUE_EXTRA_BAR = 0.05;
 const QUIET_RATIO = 0.4; // under this share of the user's level = far away
 const QUIET_EXTRA_BAR = 0.15;
 // A clip of at least ADAPT_SECONDS scoring ADAPT_MIN is surely the user, so
@@ -348,6 +358,30 @@ class Conversation extends EventEmitter {
     return Math.round(score * 1000) / 1000;
   }
 
+  // userWindow scores a long clip in RESCUE_WINDOW_S windows and returns the
+  // stretch the windows that sound like the user cover ({score, from, to} in
+  // seconds, score the best window's), or null when none does.
+  async userWindow(wav, min) {
+    const secs = A.clipSeconds(wav);
+    if (secs < RESCUE_MIN_S) return null;
+    const hop = Math.max(RESCUE_HOP_S, (secs - RESCUE_WINDOW_S) / (RESCUE_MAX_WINDOWS - 1));
+    const starts = [];
+    for (let t = 0; t < secs - RESCUE_WINDOW_S; t += hop) starts.push(t);
+    starts.push(Math.max(0, secs - RESCUE_WINDOW_S)); // the end, where a request usually is
+    let best = -1;
+    let from = -1;
+    let to = -1;
+    for (const t of starts) {
+      const end = Math.min(secs, t + RESCUE_WINDOW_S);
+      const sc = await this.speakerScore(A.wavSlice(wav, t, end));
+      if (sc > best) best = sc;
+      if (sc < min) continue;
+      if (from < 0) from = t;
+      to = end;
+    }
+    return from >= 0 ? { score: best, from, to } : null;
+  }
+
   isUserVoice(score, min) {
     return score === -1 || score >= min;
   }
@@ -533,16 +567,37 @@ class Conversation extends EventEmitter {
 
   // tryEarlyStop recognises the clip at a short pause; a finished sentence is
   // sent at once instead of after the full silence wait.
+  // Only one try runs at a time, or a noisy room starts another transcription
+  // of the whole, still growing clip at every short pause. A try that hears no
+  // words means the clip so far is only noise; it is dropped so it does not
+  // grow into a long clip that buries what the user says next.
   tryEarlyStop(rec) {
+    if (rec.earlyBusy) return;
     const at = rec.lastSpeechAt;
     rec.earlyFor = at;
+    rec.earlyBusy = true;
     const wav = this.takeClip(rec);
     void (async () => {
-      await rec.checks;
       let text = "";
       try {
+        await rec.checks;
         text = await this.transcribe(wav);
       } catch {
+        return;
+      } finally {
+        rec.earlyBusy = false;
+      }
+      if (!text && this.rec === rec && rec.lastSpeechAt === at && !rec.prefix && !rec.barge) {
+        this.log(`early: no words, ${A.clipSeconds(wav).toFixed(1)} s of noise dropped`);
+        rec.chunks.splice(0, Math.max(0, rec.chunks.length - BARGE_PREROLL_CHUNKS));
+        rec.first = -1;
+        rec.loud = 0;
+        rec.speechSum = 0;
+        rec.startedAt = this.now();
+        if (this.hearing) {
+          this.hearing = false;
+          this.render();
+        }
         return;
       }
       if (this.rec !== rec || rec.lastSpeechAt !== at || !T.SENTENCE_END_RE.test(text) || T.GOES_ON_RE.test(text)) return;
@@ -619,10 +674,21 @@ class Conversation extends EventEmitter {
       if (rec) await rec.checks;
       const scoring = wav ? this.speakerScore(wav) : Promise.resolve(-1);
       let heard = known ?? (wav ? await this.transcribe(wav) : "");
-      const score = await scoring;
+      let score = await scoring;
       const level = rec && rec.loud > 0 ? rec.speechSum / rec.loud : 0;
       const quiet = this.isQuiet(level);
       const bar = this.speakerMinFor(A.clipSeconds(wav) < SPEAKER_SHORT_S) + (quiet ? QUIET_EXTRA_BAR : 0);
+      const rescued = heard && wav && !quiet && score >= 0 && score < bar ? await this.userWindow(wav, bar + RESCUE_EXTRA_BAR) : null;
+      if (rescued) {
+        const whole = score;
+        const secs = A.clipSeconds(wav);
+        score = rescued.score;
+        if (rescued.from > 0.2 || rescued.to < secs - 0.2) {
+          const part = await this.transcribe(A.wavSlice(wav, rescued.from, rescued.to));
+          if (part) heard = part;
+        }
+        this.log(`voice rescued (window ${score.toFixed(2)}, whole ${whole.toFixed(2)}, ${rescued.from.toFixed(1)}-${rescued.to.toFixed(1)} of ${secs.toFixed(1)} s) ${quote(heard, 20)}`);
+      }
       if (heard && quiet && score < 0) {
         this.log(`quiet dropped (level ${level.toFixed(3)}) ${quote(heard)}`);
         this.flash("소리가 작아서 넘겼어요");
@@ -633,7 +699,7 @@ class Conversation extends EventEmitter {
         heard = "";
       } else if (heard && score >= 0) {
         this.log(`voice ${score.toFixed(2)} level ${level.toFixed(3)} ${quote(heard, 20)}`);
-        if (score >= this.s.speakerMin + QUIET_EXTRA_BAR) this.learnUserLevel(level);
+        if (score >= this.s.speakerMin + QUIET_EXTRA_BAR && !rescued) this.learnUserLevel(level); // a rescued clip's level is mostly the TV
       }
       // whisper writes a back-and-forth as "- 그쵸. - 네.": people talking in
       // the room or on TV, not a request.
