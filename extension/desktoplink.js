@@ -66,11 +66,13 @@ function post(p, body) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const HEAR_FRAME_MS = 300;
+
 // stateLook is how the button shows what the desktop voice is doing. Sound
-// coming in gets the red of a recording light, so it stands out from plain
-// listening at a glance.
-function stateLook(st) {
-  if (st.hearing) return { icon: "$(record)", text: "듣고 있어요", bg: "statusBarItem.errorBackground" };
+// coming in is a mic with 1-3 waves (media/aglink-icons.woff, frame cycles)
+// on the red of a recording light, so it stands out from plain listening.
+function stateLook(st, frame = 0) {
+  if (st.hearing) return { icon: `$(aglink-hear-${(frame % 3) + 1})`, text: "듣는 중", bg: "statusBarItem.errorBackground" };
   switch (st.phase) {
     case "listening":
       return { icon: "$(mic-filled)", text: "말씀하세요", bg: "statusBarItem.warningBackground" };
@@ -109,14 +111,30 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
     };
   }
 
+  let frame = 0;
+  let wave = null;
+  function animate(want) {
+    if (want && !wave) {
+      frame = 0;
+      wave = setInterval(() => {
+        frame++;
+        render();
+      }, HEAR_FRAME_MS);
+    } else if (!want && wave) {
+      clearInterval(wave);
+      wave = null;
+    }
+  }
+
   function render() {
+    animate(!stopped && active() && linked && on && !!state.hearing);
     if (!active()) return;
     if (!linked) {
       item.text = "$(mic) 음성";
       item.tooltip = "aglink 데스크톱이 꺼져 있어요";
       item.backgroundColor = undefined;
     } else if (on) {
-      const look = stateLook(state);
+      const look = stateLook(state, frame);
       item.text = `${look.icon} ${look.text}`;
       item.tooltip = `${state.label ? state.label + "\n" : ""}aglink 데스크톱 음성으로 Claude Code 와 대화 중이에요. 설정은 데스크톱 앱을 따라요. 누르면 꺼요 (Ctrl+Alt+V). 메뉴는 옆의 ▾.`;
       item.backgroundColor = new vscode.ThemeColor(look.bg);
@@ -233,6 +251,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
     dispose() {
       if (stopped) return;
       stopped = true;
+      animate(false);
       clearTimeout(retry);
       if (on && linked) post("/vscode/attach", { on: false, ...identity() }).catch(() => {});
       if (req) req.destroy();
