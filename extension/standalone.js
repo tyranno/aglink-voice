@@ -115,12 +115,12 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       item.backgroundColor = undefined;
     } else if (!st.on) {
       item.text = "$(mic) 음성";
-      item.tooltip = "aglink 음성 — 누르면 켜요 (Ctrl+Alt+V). 메뉴는 옆의 ⚙.";
+      item.tooltip = "aglink 음성 — 누르면 켜요 (Ctrl+Alt+V). 메뉴는 옆의 ▾.";
       item.backgroundColor = undefined;
     } else {
       item.text = `${ICONS[st.phase] || "$(mic)"} ${st.label}`;
       const s = settings.get();
-      item.tooltip = `음성 켜짐 — ${voiceLabel(s.voice)} 목소리, ${s.speed}배, 받아쓰기 ${st.whisper === "gpu" ? "그래픽카드" : st.whisper === "cpu" ? "CPU" : "준비 중"}. 누르면 꺼요 (Ctrl+Alt+V). 메뉴는 옆의 ⚙.`;
+      item.tooltip = `음성 켜짐 — ${voiceLabel(s.voice)} 목소리, ${s.speed}배, 받아쓰기 ${st.whisper === "gpu" ? "그래픽카드" : st.whisper === "cpu" ? "CPU" : "준비 중"}. 누르면 꺼요 (Ctrl+Alt+V). 메뉴는 옆의 ▾.`;
       item.backgroundColor = st.phase === "problem" ? new vscode.ThemeColor("statusBarItem.errorBackground") : new vscode.ThemeColor("statusBarItem.warningBackground");
     }
     item.show();

@@ -66,6 +66,28 @@ function post(p, body) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// stateLook is how the button shows what the desktop voice is doing. Sound
+// coming in gets the red of a recording light, so it stands out from plain
+// listening at a glance.
+function stateLook(st) {
+  if (st.hearing) return { icon: "$(record)", text: "듣고 있어요", bg: "statusBarItem.errorBackground" };
+  switch (st.phase) {
+    case "listening":
+      return { icon: "$(mic-filled)", text: "말씀하세요", bg: "statusBarItem.warningBackground" };
+    case "transcribing":
+      return { icon: "$(loading~spin)", text: "알아듣는 중", bg: "statusBarItem.warningBackground" };
+    case "waiting":
+      return { icon: "$(watch)", text: "답 기다리는 중", bg: "statusBarItem.warningBackground" };
+    case "speaking":
+    case "done":
+      return { icon: "$(unmute)", text: "읽는 중", bg: "statusBarItem.warningBackground" };
+    case "problem":
+      return { icon: "$(warning)", text: "문제가 있어요", bg: "statusBarItem.errorBackground" };
+    default:
+      return { icon: "$(mic-filled)", text: "음성 켜짐", bg: "statusBarItem.warningBackground" };
+  }
+}
+
 // createVoice links this window to the desktop app. It draws on the shared
 // status bar item only while active() (the desktop is the voice in use) and
 // tells onLink when the desktop app comes and goes.
@@ -73,6 +95,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
   let req = null;
   let linked = false; // the event stream to the desktop app is open
   let on = false;
+  let state = {}; // the desktop voice's last {phase, label, hearing}
   let stopped = false;
   let retry = null;
   let backoff = MIN_BACKOFF_MS;
@@ -93,9 +116,10 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
       item.tooltip = "aglink 데스크톱이 꺼져 있어요";
       item.backgroundColor = undefined;
     } else if (on) {
-      item.text = "$(mic-filled) 음성 켜짐";
-      item.tooltip = "aglink 데스크톱 음성으로 Claude Code 와 대화 중이에요. 설정은 데스크톱 앱을 따라요. 누르면 꺼요 (Ctrl+Alt+V). 메뉴는 옆의 ⚙.";
-      item.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+      const look = stateLook(state);
+      item.text = `${look.icon} ${look.text}`;
+      item.tooltip = `${state.label ? state.label + "\n" : ""}aglink 데스크톱 음성으로 Claude Code 와 대화 중이에요. 설정은 데스크톱 앱을 따라요. 누르면 꺼요 (Ctrl+Alt+V). 메뉴는 옆의 ▾.`;
+      item.backgroundColor = new vscode.ThemeColor(look.bg);
     } else {
       item.text = "$(mic) 음성";
       item.tooltip = "누르면 aglink 데스크톱 음성으로 대화를 켜요 (Ctrl+Alt+V)";
@@ -148,6 +172,10 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
           if (ev.type === "prompt" && ev.text) onPrompt(ev.text).catch((e) => log(`voice prompt failed: ${e.message}`));
           else if (ev.type === "attached" && !ev.on) {
             on = false;
+            state = {};
+            render();
+          } else if (ev.type === "state") {
+            state = ev;
             render();
           }
         }
@@ -184,6 +212,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
     try {
       await post("/vscode/attach", { on: want, ...identity() });
       on = want;
+      if (!on) state = {};
     } catch (e) {
       vscode.window.showWarningMessage(`aglink 음성: ${e.message}`);
     }
@@ -211,4 +240,4 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
   };
 }
 
-module.exports = { createVoice, parseEvents };
+module.exports = { createVoice, parseEvents, stateLook };

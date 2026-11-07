@@ -10,3 +10,14 @@ test("parseEvents keeps a half-received event for the next chunk", () => {
   assert.deepStrictEqual(b.events, [{ type: "attached", on: false }]);
   assert.strictEqual(b.rest, "");
 });
+
+test("stateLook: incoming speech stands out from plain listening", () => {
+  const { stateLook } = require("../desktoplink");
+  const hearing = stateLook({ phase: "listening", hearing: true });
+  const listening = stateLook({ phase: "listening" });
+  assert.equal(hearing.bg, "statusBarItem.errorBackground");
+  assert.equal(listening.bg, "statusBarItem.warningBackground");
+  assert.notEqual(hearing.icon, listening.icon);
+  assert.match(stateLook({ phase: "transcribing" }).icon, /~spin/);
+  assert.equal(stateLook({}).text, "음성 켜짐");
+});
