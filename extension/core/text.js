@@ -4,6 +4,7 @@
 // a reply is worth reading aloud. Carried over from the aglink desktop app
 // (desktop/frontend/src/voice.svelte.js) so both hear and read the same way.
 "use strict";
+const { speakNumbers } = require("./numbers");
 
 const SENTENCE_END_RE = /(요|니다|죠)[.!?~]*$|(까|다|네|야|지|어|아|해|래|게|자|니|군|걸)[.!?~]+$/; // a finished Korean sentence
 const GOES_ON_RE = /(니까|는데|는데요)[.~]*$/; // "그러니까…", "했는데…" lead into more
@@ -93,7 +94,7 @@ function readAloud(text) {
 
 function echoReference(reply) {
   const r = normalizeForEcho(reply);
-  return /[a-z0-9]/.test(r) ? r + normalizeForEcho(readAloud(reply)) : r;
+  return /[a-z0-9]/.test(r) ? r + normalizeForEcho(readAloud(reply)) + normalizeForEcho(speakNumbers(reply)) : r;
 }
 
 // isEcho: most of the segment's character pairs also occur in the reply being

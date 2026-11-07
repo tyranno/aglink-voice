@@ -21,6 +21,7 @@
 const { EventEmitter } = require("events");
 const T = require("./text");
 const A = require("./audio");
+const { speakNumbers } = require("./numbers");
 
 const CHUNK_MS = 50; // the engine's mic pieces
 const CONV_SILENCE_STOP_MS = 2200; // room for "음…" mid-sentence pauses
@@ -868,7 +869,7 @@ class Conversation extends EventEmitter {
   // steps (optional) asks for fewer synthesis steps: faster, a little rougher.
   synthesize(sentence, steps) {
     const s = this.s;
-    const args = { text: sentence, voice: s.voice, speed: s.speed };
+    const args = { text: speakNumbers(sentence), voice: s.voice, speed: s.speed };
     if (steps) args.steps = steps;
     return this.engine.call("tts", args).then((r) => Buffer.from(r.wav, "base64"));
   }

@@ -150,7 +150,7 @@ test("a voice command changes the setting instead of going to Claude Code", asyn
   assert.strictEqual(values.voice, "F3");
   assert.deepStrictEqual(sent, []);
   assert.strictEqual(engine.ops("tts")[0].voice, "F3");
-  assert.match(engine.ops("tts")[0].text, /여자 3번 목소리로 바꿨어요/);
+  assert.match(engine.ops("tts")[0].text, /여자 삼 번 목소리로 바꿨어요/);
   conv.stop();
 });
 
