@@ -27,7 +27,9 @@ function activate(context) {
   // The mic and the gear are one control in two halves: same name, adjacent
   // priorities, and the gear takes on whatever background the mic shows, so
   // the pair reads as a single block rather than two extensions side by side.
-  const micItem = vscode.window.createStatusBarItem("aglinkVoice.mic", vscode.StatusBarAlignment.Right, 1000);
+  // Left side, far left: the right side is the one VS Code clips when the bar
+  // is crowded or the window narrow, and this must always stay visible.
+  const micItem = vscode.window.createStatusBarItem("aglinkVoice.mic", vscode.StatusBarAlignment.Left, 100000);
   micItem.name = "aglink 음성";
   micItem.command = "aglinkVoice.primary";
   // A shared accent colour and a ▾ for the menu half make the pair read as one
@@ -42,7 +44,7 @@ function activate(context) {
       return true;
     },
   });
-  const menuItem = vscode.window.createStatusBarItem("aglinkVoice.menu", vscode.StatusBarAlignment.Right, 999.9);
+  const menuItem = vscode.window.createStatusBarItem("aglinkVoice.menu", vscode.StatusBarAlignment.Left, 99999.9);
   menuItem.name = "aglink 음성";
   menuItem.text = "$(chevron-down)";
   menuItem.color = accent;
