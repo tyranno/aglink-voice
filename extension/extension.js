@@ -30,6 +30,10 @@ function activate(context) {
   const micItem = vscode.window.createStatusBarItem("aglinkVoice.mic", vscode.StatusBarAlignment.Right, 1000);
   micItem.name = "aglink 음성";
   micItem.command = "aglinkVoice.primary";
+  // A shared accent colour and a ▾ for the menu half make the pair read as one
+  // split button; with a background set, VS Code uses its own foreground.
+  const accent = new vscode.ThemeColor("charts.blue");
+  micItem.color = accent;
   const item = new Proxy(micItem, {
     get: (t, k) => (typeof t[k] === "function" ? t[k].bind(t) : t[k]),
     set: (t, k, v) => {
@@ -40,7 +44,8 @@ function activate(context) {
   });
   const menuItem = vscode.window.createStatusBarItem("aglinkVoice.menu", vscode.StatusBarAlignment.Right, 999.9);
   menuItem.name = "aglink 음성";
-  menuItem.text = "$(gear)";
+  menuItem.text = "$(chevron-down)";
+  menuItem.color = accent;
   menuItem.tooltip = "aglink 음성 메뉴 — 목소리, 빠르기, 마이크 등";
   menuItem.command = "aglinkVoice.menu";
   menuItem.show();
