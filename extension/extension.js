@@ -24,9 +24,22 @@ let disposeAll = () => {};
 function activate(context) {
   const out = vscode.window.createOutputChannel("aglink 음성");
   const log = (m) => out.appendLine(`[${new Date().toLocaleTimeString()}] ${m}`);
-  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 1000);
-  item.command = "aglinkVoice.primary";
-  const menuItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 999);
+  // The mic and the gear are one control in two halves: same name, adjacent
+  // priorities, and the gear takes on whatever background the mic shows, so
+  // the pair reads as a single block rather than two extensions side by side.
+  const micItem = vscode.window.createStatusBarItem("aglinkVoice.mic", vscode.StatusBarAlignment.Right, 1000);
+  micItem.name = "aglink 음성";
+  micItem.command = "aglinkVoice.primary";
+  const item = new Proxy(micItem, {
+    get: (t, k) => (typeof t[k] === "function" ? t[k].bind(t) : t[k]),
+    set: (t, k, v) => {
+      t[k] = v;
+      if (k === "backgroundColor") menuItem.backgroundColor = v;
+      return true;
+    },
+  });
+  const menuItem = vscode.window.createStatusBarItem("aglinkVoice.menu", vscode.StatusBarAlignment.Right, 999.9);
+  menuItem.name = "aglink 음성";
   menuItem.text = "$(gear)";
   menuItem.tooltip = "aglink 음성 메뉴 — 목소리, 빠르기, 마이크 등";
   menuItem.command = "aglinkVoice.menu";
@@ -154,7 +167,7 @@ function activate(context) {
 
   context.subscriptions.push(
     out,
-    item,
+    micItem,
     menuItem,
     vscode.commands.registerCommand("aglinkVoice.toggle", toggle),
     vscode.commands.registerCommand("aglinkVoice.primary", primary),
