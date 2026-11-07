@@ -259,4 +259,4 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
   };
 }
 
-module.exports = { createVoice, parseEvents, stateLook };
+module.exports = { createVoice, parseEvents, stateLook, HEAR_FRAME_MS };

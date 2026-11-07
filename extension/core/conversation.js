@@ -97,6 +97,7 @@ class Conversation extends EventEmitter {
     this.paused = false; // "인식 멈춰": listening, but only "다시 인식해" / "마이크 꺼" act
     this.conv = false; // in conversation (the mic takes what is said)
     this.phase = "idle"; // idle | listening | transcribing
+    this.hearing = false; // sound loud enough to be speech is in the clip being recorded
     this.speaking = false;
     this.enrolling = false;
     this.heard = ""; // what was sent, shown while the answer is awaited
@@ -214,14 +215,14 @@ class Conversation extends EventEmitter {
       else if (this.flashText) [phase, label] = ["note", this.flashText];
       else if (this.enrolling) [phase, label] = ["listening", "목소리 등록 중"];
       else if (this.paused && !this.speaking) [phase, label] = ["note", "인식 멈춤 — “다시 인식해” 하면 들어요"];
-      else if (this.phase === "listening") [phase, label] = ["listening", "듣는 중 — 말씀하세요"];
+      else if (this.phase === "listening") [phase, label] = ["listening", this.hearing ? "말소리 듣는 중" : "듣는 중 — 말씀하세요"];
       else if (this.phase === "transcribing") [phase, label] = ["transcribing", "알아듣는 중"];
       else if (this.speaking) [phase, label] = ["speaking", "답변을 읽는 중"];
       else if (this.awaiting) [phase, label] = ["waiting", this.heard ? `${quote(this.heard, 20)} 답변 기다리는 중` : "답변 기다리는 중"];
       else if (this.conv) [phase, label] = ["conversation", "대화 중"];
       else [phase, label] = ["wake", `“${T.wakeNameLabel(this.s)}” 부르면 들어요`];
     }
-    return { on: this.on_, conv: this.conv, phase, label, whisper: this.engine.whisper };
+    return { on: this.on_, conv: this.conv, phase, label, hearing: phase === "listening" && this.hearing, whisper: this.engine.whisper };
   }
 
   render() {
@@ -419,6 +420,7 @@ class Conversation extends EventEmitter {
     if (!this.conv || this.enrolling) return;
     if (barge && (this.rec || !this.speaking)) return;
     if (!barge) this.heard = "";
+    this.hearing = false;
     const now = this.now();
     this.rec = {
       chunks: [],
@@ -464,6 +466,7 @@ class Conversation extends EventEmitter {
       this.resetSegment(rec);
       rec.barge = false;
       rec.startedAt = now;
+      this.hearing = false;
       this.phase = "listening";
       this.render();
     }
@@ -476,6 +479,10 @@ class Conversation extends EventEmitter {
       if (rec.first < 0) {
         rec.first = rec.chunks.length - 1;
         rec.firstSpeechAt = now;
+        if (!rec.barge && !this.hearing) {
+          this.hearing = true;
+          this.render();
+        }
       }
       rec.lastSpeechAt = now;
       rec.loud++;
@@ -589,6 +596,7 @@ class Conversation extends EventEmitter {
     const rec = this.rec;
     if (!rec) return;
     this.rec = null;
+    this.hearing = false;
     rec.stopped = transcribe; // a segment check still in flight may add to the prefix
     this.level = 0;
     if (!transcribe || (rec.first < 0 && !rec.prefix)) {

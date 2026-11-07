@@ -292,3 +292,24 @@ test("a long first sentence is read lead-first, every piece at full quality", as
   assert.ok(first >= 0, "the lead was read on its own");
   for (const c of tts) assert.strictEqual(c.steps, undefined, "no piece uses fewer steps");
 });
+
+test("the button says speech is coming in from the first loud sound until the clip is taken", async () => {
+  const { conv, engine, sent, feed, until } = setup({ settings: { listenMode: "always" } });
+  const seen = [];
+  conv.on("state", (st) => seen.push(st));
+  await conv.start();
+  await until(() => conv.phase === "listening", "the mic");
+  await feed(0.001, 500); // the room
+  assert.strictEqual(conv.state().hearing, false);
+
+  engine.text = "오늘 할 일 정리해 줘.";
+  await feed(0.2, 300);
+  assert.strictEqual(conv.state().hearing, true);
+  assert.strictEqual(conv.state().label, "말소리 듣는 중");
+  await feed(0.2, 500);
+  await feed(0.001, 2400);
+  await until(() => sent.length === 1, "the request");
+  assert.strictEqual(conv.state().hearing, false);
+  assert.ok(seen.some((st) => st.hearing), "the change is sent to the button");
+  conv.stop();
+});

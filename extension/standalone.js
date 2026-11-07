@@ -23,6 +23,7 @@ const { Engine } = require("./core/engine");
 const { Conversation } = require("./core/conversation");
 const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
 const { STANDALONE_PORT, ensureStopHook } = require("./hook");
+const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
 
 const SECTION = "aglinkVoice";
 const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge", "micDevice", "outputDevice"];
@@ -102,9 +103,27 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
 
   const ICONS = { off: "$(mic)", wake: "$(mic)", conversation: "$(mic-filled)", listening: "$(mic-filled)", transcribing: "$(loading~spin)", speaking: "$(unmute)", waiting: "$(watch)", note: "$(mic-filled)", problem: "$(warning)" };
 
+  // While speech is coming in the button shows the same mic with 1-3 waves
+  // on red as the desktop voice does, so the two modes look alike.
+  let frame = 0;
+  let wave = null;
+  function animate(want) {
+    if (want && !wave) {
+      frame = 0;
+      wave = setInterval(() => {
+        frame++;
+        render();
+      }, HEAR_FRAME_MS);
+    } else if (!want && wave) {
+      clearInterval(wave);
+      wave = null;
+    }
+  }
+
   function render() {
-    if (!active()) return;
     const st = last;
+    animate(active() && st.on && !!st.hearing);
+    if (!active()) return;
     if (starting && !st.on) {
       item.text = "$(loading~spin) 음성 켜는 중";
       item.tooltip = "음성 엔진을 켜는 중이에요";
@@ -117,6 +136,11 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       item.text = "$(mic) 음성";
       item.tooltip = "aglink 음성 — 누르면 켜요 (Ctrl+Alt+V). 메뉴는 옆의 ▾.";
       item.backgroundColor = undefined;
+    } else if (st.hearing) {
+      const look = stateLook(st, frame);
+      item.text = `${look.icon} ${look.text}`;
+      item.tooltip = "말소리가 들어오고 있어요. 누르면 꺼요 (Ctrl+Alt+V).";
+      item.backgroundColor = new vscode.ThemeColor(look.bg);
     } else {
       item.text = `${ICONS[st.phase] || "$(mic)"} ${st.label}`;
       const s = settings.get();
@@ -416,6 +440,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     },
     dispose() {
       clearTimeout(readerTimer);
+      animate(false);
       const c = conv;
       conv = null;
       if (c) c.stop();
