@@ -37,7 +37,10 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $here = $PSScriptRoot
 $pkg = Get-Content -Raw -Encoding UTF8 (Join-Path $here 'package.json') | ConvertFrom-Json
 $version = $pkg.version
-$files = @('package.json', 'extension.js', 'desktoplink.js', 'standalone.js', 'settingsPanel.js', 'hook.js', 'core/text.js', 'core/audio.js', 'core/engine.js', 'core/conversation.js', 'README.md')
+# Every core module ships: a hand-kept list missed core/numbers.js in 0.5.2
+# and the extension failed to load.
+$core = Get-ChildItem (Join-Path $here 'core') -Filter *.js | ForEach-Object { 'core/' + $_.Name }
+$files = @('package.json', 'extension.js', 'desktoplink.js', 'standalone.js', 'settingsPanel.js', 'hook.js', 'README.md') + $core
 
 $out = Join-Path $here "$($pkg.name)-$version.vsix"
 if (Test-Path $out) { Remove-Item $out -Force }
