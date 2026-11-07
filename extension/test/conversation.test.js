@@ -355,6 +355,92 @@ test("the user talking over the TV is found in a window of the clip, and only th
   conv.stop();
 });
 
+test("a long clip that only just passes as a whole but is mostly someone else is not sent", async () => {
+  const me = A.normalize([1, 0, 0, 0]);
+  const { conv, engine, sent, feed, until } = setup({ settings: { listenMode: "always", speakerMin: 0.5 }, store: { speaker: { base: me, ref: me } } });
+  // Two people taking turns, both close: the user loud (0.6), the other a
+  // little softer (0.35). The voice is the user's share of the loud chunks.
+  const shares = (b64) => {
+    const w = Buffer.from(b64, "base64");
+    const n = (w.length - 44) / 2;
+    let u = 0;
+    let o = 0;
+    for (let i = 0; i < n; i += 800) {
+      let peak = 0;
+      for (let j = i; j < Math.min(n, i + 800); j++) peak = Math.max(peak, Math.abs(w.readInt16LE(44 + j * 2)) / 32767);
+      if (peak > 0.5) u++;
+      else if (peak > 0.2) o++;
+    }
+    return [u, o];
+  };
+  const call = engine.call.bind(engine);
+  engine.call = async (op, args = {}) => {
+    if (op === "embed") {
+      engine.calls.push({ op });
+      const [u, o] = shares(args.wav);
+      return { ok: true, embedding: [u, o, 0, 0] };
+    }
+    if (op === "transcribe") {
+      engine.calls.push({ op });
+      return { ok: true, text: "엄마는 바퀴 하게 만들래. 내가 만들 거야." };
+    }
+    return call(op, args);
+  };
+  await conv.start();
+  await until(() => conv.phase === "listening", "the mic");
+  await feed(0.001, 500);
+  await feed(0.35, 8000); // someone else
+  await feed(0.6, 5000); // the user, 0.53 as a whole: just over the bar
+  await feed(0.001, 2400);
+  await until(() => engine.ops("embed").length >= 8, "the window check");
+  await feed(0.001, 500);
+  assert.deepStrictEqual(sent, []);
+  conv.stop();
+});
+
+test("a long clip that only just passes as a whole, half the user, sends only their part", async () => {
+  const me = A.normalize([1, 0, 0, 0]);
+  const { conv, engine, sent, feed, until } = setup({ settings: { listenMode: "always", speakerMin: 0.5 }, store: { speaker: { base: me, ref: me } } });
+  // Two people taking turns, both close: the user loud (0.6), the other a
+  // little softer (0.35). The voice is the user's share of the loud chunks.
+  const shares = (b64) => {
+    const w = Buffer.from(b64, "base64");
+    const n = (w.length - 44) / 2;
+    let u = 0;
+    let o = 0;
+    for (let i = 0; i < n; i += 800) {
+      let peak = 0;
+      for (let j = i; j < Math.min(n, i + 800); j++) peak = Math.max(peak, Math.abs(w.readInt16LE(44 + j * 2)) / 32767);
+      if (peak > 0.5) u++;
+      else if (peak > 0.2) o++;
+    }
+    return [u, o];
+  };
+  const call = engine.call.bind(engine);
+  engine.call = async (op, args = {}) => {
+    if (op === "embed") {
+      engine.calls.push({ op });
+      const [u, o] = shares(args.wav);
+      return { ok: true, embedding: [u, o, 0, 0] };
+    }
+    if (op === "transcribe") {
+      engine.calls.push({ op });
+      const [u, o] = shares(args.wav);
+      return { ok: true, text: o > u ? "엄마는 바퀴 하게 만들래. 지금 설치해." : "지금 설치해." };
+    }
+    return call(op, args);
+  };
+  await conv.start();
+  await until(() => conv.phase === "listening", "the mic");
+  await feed(0.001, 500);
+  await feed(0.35, 6500); // someone else
+  await feed(0.6, 5500); // the user, 0.65 as a whole: just over the bar
+  await feed(0.001, 2400);
+  await until(() => sent.length === 1, "the user's request");
+  assert.deepStrictEqual(sent, ["지금 설치해."]);
+  conv.stop();
+});
+
 test("only one early try runs at a time, and one that hears no words drops the noise", async () => {
   const { conv, engine, feed, until } = setup({ settings: { listenMode: "always" } });
   let release;

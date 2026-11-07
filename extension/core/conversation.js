@@ -56,6 +56,13 @@ const RESCUE_WINDOW_S = 3;
 const RESCUE_HOP_S = 1.5;
 const RESCUE_MAX_WINDOWS = 12;
 const RESCUE_EXTRA_BAR = 0.05;
+// A long clip that only just passes as a whole may be several people talking
+// (a 45 s family conversation scored 0.60 against a bar of 0.5). It is scored
+// in windows too: unless most of them sound like the user it is dropped, and
+// otherwise only the user's stretch is sent.
+const LONG_CHECK_S = 10;
+const LONG_CHECK_MARGIN = 0.15;
+const LONG_CHECK_SHARE = 0.5;
 const QUIET_RATIO = 0.4; // under this share of the user's level = far away
 const QUIET_EXTRA_BAR = 0.15;
 // A clip of at least ADAPT_SECONDS scoring ADAPT_MIN is surely the user, so
@@ -359,8 +366,9 @@ class Conversation extends EventEmitter {
   }
 
   // userWindow scores a long clip in RESCUE_WINDOW_S windows and returns the
-  // stretch the windows that sound like the user cover ({score, from, to} in
-  // seconds, score the best window's), or null when none does.
+  // stretch the windows that sound like the user cover ({score, from, to,
+  // share} in seconds, score the best window's, share the part of the windows
+  // that pass), or null when none does.
   async userWindow(wav, min) {
     const secs = A.clipSeconds(wav);
     if (secs < RESCUE_MIN_S) return null;
@@ -371,15 +379,17 @@ class Conversation extends EventEmitter {
     let best = -1;
     let from = -1;
     let to = -1;
+    let hits = 0;
     for (const t of starts) {
       const end = Math.min(secs, t + RESCUE_WINDOW_S);
       const sc = await this.speakerScore(A.wavSlice(wav, t, end));
       if (sc > best) best = sc;
       if (sc < min) continue;
+      hits++;
       if (from < 0) from = t;
       to = end;
     }
-    return from >= 0 ? { score: best, from, to } : null;
+    return from >= 0 ? { score: best, from, to, share: hits / starts.length } : null;
   }
 
   isUserVoice(score, min) {
@@ -688,6 +698,18 @@ class Conversation extends EventEmitter {
           if (part) heard = part;
         }
         this.log(`voice rescued (window ${score.toFixed(2)}, whole ${whole.toFixed(2)}, ${rescued.from.toFixed(1)}-${rescued.to.toFixed(1)} of ${secs.toFixed(1)} s) ${quote(heard, 20)}`);
+      }
+      const secs = A.clipSeconds(wav);
+      const long = !rescued && heard && wav && !quiet && score >= bar && score < bar + LONG_CHECK_MARGIN && secs >= LONG_CHECK_S;
+      const win = long ? await this.userWindow(wav, bar) : null;
+      if (long && (!win || win.share < LONG_CHECK_SHARE)) {
+        this.log(`mixed voices dropped (whole ${score.toFixed(2)}, ${Math.round((win?.share ?? 0) * 100)}% of windows, ${secs.toFixed(1)} s) ${quote(heard)}`);
+        this.flash("여러 사람 목소리라 넘겼어요");
+        heard = "";
+      } else if (win && (win.from > 0.2 || win.to < secs - 0.2)) {
+        const part = await this.transcribe(A.wavSlice(wav, win.from, win.to));
+        if (part) heard = part;
+        this.log(`long clip trimmed (whole ${score.toFixed(2)}, ${Math.round(win.share * 100)}% of windows, ${win.from.toFixed(1)}-${win.to.toFixed(1)} of ${secs.toFixed(1)} s) ${quote(heard, 20)}`);
       }
       if (heard && quiet && score < 0) {
         this.log(`quiet dropped (level ${level.toFixed(3)}) ${quote(heard)}`);
