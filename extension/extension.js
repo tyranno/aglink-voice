@@ -7,8 +7,8 @@
 //   the settings under aglinkVoice.* here.
 // aglinkVoice.source picks one for good; "auto" prefers the desktop app.
 //
-// The button opens a menu of the everyday settings; settingsPanel.js is the
-// full settings screen.
+// The mic button turns voice on and off; the gear beside it opens a menu of
+// the everyday settings; settingsPanel.js is the full settings screen.
 "use strict";
 
 const vscode = require("vscode");
@@ -25,7 +25,12 @@ function activate(context) {
   const out = vscode.window.createOutputChannel("aglink 음성");
   const log = (m) => out.appendLine(`[${new Date().toLocaleTimeString()}] ${m}`);
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 1000);
-  item.command = "aglinkVoice.menu";
+  item.command = "aglinkVoice.primary";
+  const menuItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 999);
+  menuItem.text = "$(gear)";
+  menuItem.tooltip = "aglink 음성 메뉴 — 목소리, 빠르기, 마이크 등";
+  menuItem.command = "aglinkVoice.menu";
+  menuItem.show();
 
   let desktop = null;
   let standalone = null;
@@ -46,6 +51,8 @@ function activate(context) {
   render();
 
   const toggle = () => (mode() === "desktop" ? desktop.toggle() : standalone.toggle());
+  // The mic button: on/off, or stop a reading that is playing with voice off.
+  const primary = () => (mode() === "standalone" && standalone.speaking && !standalone.on ? standalone.stopReading() : toggle());
   const standaloneOnly = (fn) => async () => {
     if (mode() === "desktop") {
       vscode.window.showInformationMessage("aglink 데스크톱 앱의 음성을 쓰는 중이에요. 목소리 등록과 설정은 데스크톱 앱에서 해 주세요.");
@@ -148,7 +155,9 @@ function activate(context) {
   context.subscriptions.push(
     out,
     item,
+    menuItem,
     vscode.commands.registerCommand("aglinkVoice.toggle", toggle),
+    vscode.commands.registerCommand("aglinkVoice.primary", primary),
     vscode.commands.registerCommand("aglinkVoice.menu", menu),
     vscode.commands.registerCommand("aglinkVoice.openSettings", () => openSettings(vscode, settingsHost)),
     vscode.commands.registerCommand("aglinkVoice.stopReading", () => standalone.stopReading()),

@@ -111,16 +111,16 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       item.backgroundColor = undefined;
     } else if (!st.on && st.phase === "speaking") {
       item.text = "$(unmute) 답변 읽는 중";
-      item.tooltip = "타이핑한 질문의 답을 읽는 중이에요. 누르면 메뉴에서 멈출 수 있어요.";
+      item.tooltip = "타이핑한 질문의 답을 읽는 중이에요. 누르면 멈춰요.";
       item.backgroundColor = undefined;
     } else if (!st.on) {
       item.text = "$(mic) 음성";
-      item.tooltip = "aglink 음성 — 누르면 메뉴 (켜고 끄기는 Ctrl+Alt+V)";
+      item.tooltip = "aglink 음성 — 누르면 켜요 (Ctrl+Alt+V). 메뉴는 옆의 ⚙.";
       item.backgroundColor = undefined;
     } else {
       item.text = `${ICONS[st.phase] || "$(mic)"} ${st.label}`;
       const s = settings.get();
-      item.tooltip = `음성 켜짐 — ${voiceLabel(s.voice)} 목소리, ${s.speed}배, 받아쓰기 ${st.whisper === "gpu" ? "그래픽카드" : st.whisper === "cpu" ? "CPU" : "준비 중"}. 누르면 메뉴, Ctrl+Alt+V 로 꺼요.`;
+      item.tooltip = `음성 켜짐 — ${voiceLabel(s.voice)} 목소리, ${s.speed}배, 받아쓰기 ${st.whisper === "gpu" ? "그래픽카드" : st.whisper === "cpu" ? "CPU" : "준비 중"}. 누르면 꺼요 (Ctrl+Alt+V). 메뉴는 옆의 ⚙.`;
       item.backgroundColor = st.phase === "problem" ? new vscode.ThemeColor("statusBarItem.errorBackground") : new vscode.ThemeColor("statusBarItem.warningBackground");
     }
     item.show();
