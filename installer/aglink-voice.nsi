@@ -1,5 +1,5 @@
 ﻿; aglink 음성 setup (NSIS 3). Built by build.ps1, which passes
-;   VERSION  extension version (0.4.1)
+;   VERSION  extension version (0.5.0)
 ;   STAGE    installer\stage: base\ (engine, models, whisper\cpu, the .vsix), gpu\ (whisper\cuda)
 ;   OUTDIR   where the .exe goes
 ;   GPU      defined: the NVIDIA add-on instead of the main setup
