@@ -2,7 +2,7 @@
   "name": "aglink-voice",
   "displayName": "aglink 음성 — Claude Code 음성 대화",
   "description": "Claude Code 에 말로 묻고 답을 소리로 들어요. 받아쓰기(Whisper), 읽어 주기(Supertonic 목소리 10개), 등록한 목소리만 받기, \"아글링크\" 호출어가 모두 이 PC 안에서 돌아요.",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "publisher": "aglink",
   "private": true,
   "engines": {
@@ -39,6 +39,16 @@
       {
         "command": "aglinkVoice.sendNow",
         "title": "지금까지 들은 말 바로 보내기",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.skipReading",
+        "title": "답변 그만 읽고 바로 듣기",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.next",
+        "title": "다음으로 (읽는 중이면 그만 읽기, 듣는 중이면 보내기)",
         "category": "aglink 음성"
       },
       {
@@ -79,7 +89,7 @@
         "key": "ctrl+alt+v"
       },
       {
-        "command": "aglinkVoice.sendNow",
+        "command": "aglinkVoice.next",
         "key": "ctrl+alt+enter"
       }
     ],

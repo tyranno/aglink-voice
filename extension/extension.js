@@ -59,7 +59,21 @@ function activate(context) {
   sendItem.color = accent;
   sendItem.tooltip = "듣기를 멈추고 지금까지 들은 말을 바로 보내요 (Ctrl+Alt+Enter)";
   sendItem.command = "aglinkVoice.sendNow";
-  const showSend = (on) => (on ? sendItem.show() : sendItem.hide());
+  // Shown only while a reply is read: a long one can be cut short to go on.
+  const skipItem = vscode.window.createStatusBarItem("aglinkVoice.skip", vscode.StatusBarAlignment.Left, 99999.8);
+  skipItem.name = "aglink 음성 그만 읽기";
+  skipItem.text = "$(debug-step-over) 그만 읽기";
+  skipItem.color = accent;
+  skipItem.tooltip = "답변 읽기를 여기서 멈추고 바로 다음 말을 들어요 (Ctrl+Alt+Enter)";
+  skipItem.command = "aglinkVoice.skipReading";
+  let shownPhase = null; // the voice's phase as last drawn, for Ctrl+Alt+Enter
+  const showSend = (phase) => {
+    shownPhase = phase;
+    if (phase === "listening") sendItem.show();
+    else sendItem.hide();
+    if (phase === "speaking") skipItem.show();
+    else skipItem.hide();
+  };
 
   let desktop = null;
   let standalone = null;
@@ -80,6 +94,9 @@ function activate(context) {
   render();
 
   const sendNow = () => (mode() === "desktop" ? desktop.sendNow() : standalone.sendNow());
+  const skipReading = () => (mode() === "desktop" ? desktop.skipReading() : standalone.skipReading());
+  // Ctrl+Alt+Enter moves the conversation on: a reading is cut short, a listening is sent.
+  const next = () => (shownPhase === "speaking" ? skipReading() : sendNow());
   const toggle = () => (mode() === "desktop" ? desktop.toggle() : standalone.toggle());
   // The mic button: on/off, or stop a reading that is playing with voice off.
   const primary = () => (mode() === "standalone" && standalone.speaking && !standalone.on ? standalone.stopReading() : toggle());
@@ -187,8 +204,11 @@ function activate(context) {
     micItem,
     menuItem,
     sendItem,
+    skipItem,
     vscode.commands.registerCommand("aglinkVoice.toggle", toggle),
     vscode.commands.registerCommand("aglinkVoice.sendNow", sendNow),
+    vscode.commands.registerCommand("aglinkVoice.skipReading", skipReading),
+    vscode.commands.registerCommand("aglinkVoice.next", next),
     vscode.commands.registerCommand("aglinkVoice.primary", primary),
     vscode.commands.registerCommand("aglinkVoice.menu", menu),
     vscode.commands.registerCommand("aglinkVoice.openSettings", () => openSettings(vscode, settingsHost)),

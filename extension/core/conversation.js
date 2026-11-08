@@ -671,6 +671,15 @@ class Conversation extends EventEmitter {
     this.stopRecording(true);
   }
 
+  // skipReading is the "그만 읽기" click: the reading stops here and, in a
+  // conversation, the mic opens at once for the next thing to say.
+  skipReading() {
+    if (!this.speaking) return;
+    this.log("reading skipped (clicked)");
+    this.stopSpeaking();
+    if (this.conv && !this.rec && !this.enrolling) this.resumeListening(0);
+  }
+
   stopRecording(transcribe, heard = null) {
     const rec = this.rec;
     if (!rec) return;

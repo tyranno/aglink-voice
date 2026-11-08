@@ -128,7 +128,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
 
   function render() {
     animate(!stopped && active() && linked && on && !!state.hearing);
-    if (active()) showSend(linked && on && state.phase === "listening");
+    if (active()) showSend(linked && on ? state.phase : null);
     if (!active()) return;
     if (!linked) {
       item.text = "$(mic) 음성";
@@ -246,11 +246,20 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
     }
   }
 
+  async function skipReading() {
+    try {
+      await post("/vscode/skip", {});
+    } catch (e) {
+      log(`voice skip failed: ${e.message}`);
+    }
+  }
+
   render();
   connect();
   return {
     toggle,
     sendNow,
+    skipReading,
     render,
     get linked() {
       return linked;

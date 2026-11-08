@@ -123,7 +123,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   function render() {
     const st = last;
     animate(active() && st.on && !!st.hearing);
-    if (active()) showSend(!!st.on && st.phase === "listening");
+    if (active()) showSend(st.on ? st.phase : null);
     if (!active()) return;
     if (starting && !st.on) {
       item.text = "$(loading~spin) 음성 켜는 중";
@@ -399,6 +399,9 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     },
     sendNow() {
       if (conv) conv.sendNow();
+    },
+    skipReading() {
+      if (conv) conv.skipReading();
     },
     // enroll records the user's voice (turning voice on for it if need be).
     async enroll() {
