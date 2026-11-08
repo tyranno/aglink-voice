@@ -52,7 +52,7 @@ function readSettings(cfg) {
 
 // elsewhere(): the desktop app's voice is on — it reads its own answers, so
 // typed questions' answers are left alone too.
-function createStandalone(vscode, context, log, { item, active = () => true, elsewhere = () => false } = {}) {
+function createStandalone(vscode, context, log, { item, active = () => true, elsewhere = () => false, showSend = () => {} } = {}) {
   const cfg = () => vscode.workspace.getConfiguration(SECTION);
   const settings = {
     get: () => readSettings(cfg()),
@@ -123,6 +123,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   function render() {
     const st = last;
     animate(active() && st.on && !!st.hearing);
+    if (active()) showSend(!!st.on && st.phase === "listening");
     if (!active()) return;
     if (starting && !st.on) {
       item.text = "$(loading~spin) 음성 켜는 중";
@@ -395,6 +396,9 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     },
     stopReading() {
       if (conv) conv.stopSpeaking();
+    },
+    sendNow() {
+      if (conv) conv.sendNow();
     },
     // enroll records the user's voice (turning voice on for it if need be).
     async enroll() {

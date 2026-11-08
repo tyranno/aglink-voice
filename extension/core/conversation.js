@@ -657,6 +657,20 @@ class Conversation extends EventEmitter {
   }
 
   // heard is the clip's text when tryEarlyStop already has it.
+  // sendNow is the "보내기" click: the listening ends now and what was heard
+  // is sent as it is — whoever's voice it is, so the speaker checks are skipped.
+  sendNow() {
+    const rec = this.rec;
+    if (!rec || rec.barge || this.phase !== "listening") return;
+    if (rec.first < 0 && !rec.prefix) {
+      this.flash("아직 들은 말이 없어요");
+      return;
+    }
+    rec.manual = true;
+    this.log("send now (clicked)");
+    this.stopRecording(true);
+  }
+
   stopRecording(transcribe, heard = null) {
     const rec = this.rec;
     if (!rec) return;
@@ -682,13 +696,14 @@ class Conversation extends EventEmitter {
     let retry = false;
     try {
       if (rec) await rec.checks;
-      const scoring = wav ? this.speakerScore(wav) : Promise.resolve(-1);
+      const screen = !rec?.manual;
+      const scoring = screen && wav ? this.speakerScore(wav) : Promise.resolve(-1);
       let heard = known ?? (wav ? await this.transcribe(wav) : "");
       let score = await scoring;
       const level = rec && rec.loud > 0 ? rec.speechSum / rec.loud : 0;
-      const quiet = this.isQuiet(level);
+      const quiet = screen && this.isQuiet(level);
       const bar = this.speakerMinFor(A.clipSeconds(wav) < SPEAKER_SHORT_S) + (quiet ? QUIET_EXTRA_BAR : 0);
-      const rescued = heard && wav && !quiet && score >= 0 && score < bar ? await this.userWindow(wav, bar + RESCUE_EXTRA_BAR) : null;
+      const rescued = heard && screen && wav && !quiet && score >= 0 && score < bar ? await this.userWindow(wav, bar + RESCUE_EXTRA_BAR) : null;
       if (rescued) {
         const whole = score;
         const secs = A.clipSeconds(wav);
@@ -700,7 +715,7 @@ class Conversation extends EventEmitter {
         this.log(`voice rescued (window ${score.toFixed(2)}, whole ${whole.toFixed(2)}, ${rescued.from.toFixed(1)}-${rescued.to.toFixed(1)} of ${secs.toFixed(1)} s) ${quote(heard, 20)}`);
       }
       const secs = A.clipSeconds(wav);
-      const long = !rescued && heard && wav && !quiet && score >= bar && score < bar + LONG_CHECK_MARGIN && secs >= LONG_CHECK_S;
+      const long = !rescued && heard && screen && wav && !quiet && score >= bar && score < bar + LONG_CHECK_MARGIN && secs >= LONG_CHECK_S;
       const win = long ? await this.userWindow(wav, bar) : null;
       if (long && (!win || win.share < LONG_CHECK_SHARE)) {
         this.log(`mixed voices dropped (whole ${score.toFixed(2)}, ${Math.round((win?.share ?? 0) * 100)}% of windows, ${secs.toFixed(1)} s) ${quote(heard)}`);
@@ -725,7 +740,7 @@ class Conversation extends EventEmitter {
       }
       // whisper writes a back-and-forth as "- 그쵸. - 네.": people talking in
       // the room or on TV, not a request.
-      if (heard && (heard.match(T.DIALOGUE_RE) || []).length >= 2) {
+      if (heard && screen && (heard.match(T.DIALOGUE_RE) || []).length >= 2) {
         this.log(`dialogue dropped ${quote(heard)}`);
         heard = "";
       }

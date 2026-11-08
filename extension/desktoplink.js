@@ -93,7 +93,7 @@ function stateLook(st, frame = 0) {
 // createVoice links this window to the desktop app. It draws on the shared
 // status bar item only while active() (the desktop is the voice in use) and
 // tells onLink when the desktop app comes and goes.
-function createVoice(vscode, log, { item, active = () => true, onLink = () => {} } = {}) {
+function createVoice(vscode, log, { item, active = () => true, onLink = () => {}, showSend = () => {} } = {}) {
   let req = null;
   let linked = false; // the event stream to the desktop app is open
   let on = false;
@@ -128,6 +128,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
 
   function render() {
     animate(!stopped && active() && linked && on && !!state.hearing);
+    if (active()) showSend(linked && on && state.phase === "listening");
     if (!active()) return;
     if (!linked) {
       item.text = "$(mic) 음성";
@@ -237,10 +238,19 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
     render();
   }
 
+  async function sendNow() {
+    try {
+      await post("/vscode/send", {});
+    } catch (e) {
+      log(`voice send failed: ${e.message}`);
+    }
+  }
+
   render();
   connect();
   return {
     toggle,
+    sendNow,
     render,
     get linked() {
       return linked;

@@ -51,6 +51,15 @@ function activate(context) {
   menuItem.tooltip = "aglink 음성 메뉴 — 목소리, 빠르기, 마이크 등";
   menuItem.command = "aglinkVoice.menu";
   menuItem.show();
+  // Shown only while listening: the room may never go quiet enough for the
+  // end of the words to be noticed, so they can be sent by hand.
+  const sendItem = vscode.window.createStatusBarItem("aglinkVoice.send", vscode.StatusBarAlignment.Left, 99999.8);
+  sendItem.name = "aglink 음성 보내기";
+  sendItem.text = "$(send) 보내기";
+  sendItem.color = accent;
+  sendItem.tooltip = "듣기를 멈추고 지금까지 들은 말을 바로 보내요 (Ctrl+Alt+Enter)";
+  sendItem.command = "aglinkVoice.sendNow";
+  const showSend = (on) => (on ? sendItem.show() : sendItem.hide());
 
   let desktop = null;
   let standalone = null;
@@ -66,10 +75,11 @@ function activate(context) {
   };
   const render = () => (mode() === "desktop" ? desktop : standalone)?.render();
 
-  standalone = createStandalone(vscode, context, log, { item, active: () => mode() === "standalone", elsewhere: () => !!(desktop && desktop.on && desktop.linked) });
-  desktop = createVoice(vscode, log, { item, active: () => mode() === "desktop", onLink: render });
+  standalone = createStandalone(vscode, context, log, { item, active: () => mode() === "standalone", elsewhere: () => !!(desktop && desktop.on && desktop.linked), showSend });
+  desktop = createVoice(vscode, log, { item, active: () => mode() === "desktop", onLink: render, showSend });
   render();
 
+  const sendNow = () => (mode() === "desktop" ? desktop.sendNow() : standalone.sendNow());
   const toggle = () => (mode() === "desktop" ? desktop.toggle() : standalone.toggle());
   // The mic button: on/off, or stop a reading that is playing with voice off.
   const primary = () => (mode() === "standalone" && standalone.speaking && !standalone.on ? standalone.stopReading() : toggle());
@@ -176,7 +186,9 @@ function activate(context) {
     out,
     micItem,
     menuItem,
+    sendItem,
     vscode.commands.registerCommand("aglinkVoice.toggle", toggle),
+    vscode.commands.registerCommand("aglinkVoice.sendNow", sendNow),
     vscode.commands.registerCommand("aglinkVoice.primary", primary),
     vscode.commands.registerCommand("aglinkVoice.menu", menu),
     vscode.commands.registerCommand("aglinkVoice.openSettings", () => openSettings(vscode, settingsHost)),
