@@ -232,6 +232,8 @@ class Conversation extends EventEmitter {
       else if (this.flashText) [phase, label] = ["note", this.flashText];
       else if (this.enrolling) [phase, label] = ["listening", "목소리 등록 중"];
       else if (this.paused && !this.speaking) [phase, label] = ["note", "인식 멈춤 — “다시 인식해” 하면 들어요"];
+      // Whisper still loading: what is said now waits for it.
+      else if (this.phase === "listening" && this.engine.whisper === "starting") [phase, label] = ["preparing", "준비 중 — 잠시 후 말씀하세요"];
       else if (this.phase === "listening") [phase, label] = ["listening", this.hearing ? "말소리 듣는 중" : "듣는 중 — 말씀하세요"];
       else if (this.phase === "transcribing") [phase, label] = ["transcribing", "알아듣는 중"];
       else if (this.speaking) [phase, label] = ["speaking", "답변을 읽는 중"];

@@ -74,6 +74,8 @@ const HEAR_FRAME_MS = 300;
 function stateLook(st, frame = 0) {
   if (st.hearing) return { icon: `$(aglink-hear-${(frame % 3) + 1})`, text: "듣는 중", bg: "statusBarItem.errorBackground" };
   switch (st.phase) {
+    case "preparing": // the desktop's recognition is still loading
+      return { icon: "$(loading~spin)", text: "준비 중", bg: "statusBarItem.warningBackground" };
     case "listening":
       return { icon: "$(mic-filled)", text: "말씀하세요", bg: "statusBarItem.warningBackground" };
     case "transcribing":

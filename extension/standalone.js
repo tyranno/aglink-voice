@@ -101,7 +101,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     return { ok: true };
   }
 
-  const ICONS = { off: "$(mic)", wake: "$(mic)", conversation: "$(mic-filled)", listening: "$(mic-filled)", transcribing: "$(loading~spin)", speaking: "$(unmute)", waiting: "$(watch)", note: "$(mic-filled)", problem: "$(warning)" };
+  const ICONS = { off: "$(mic)", wake: "$(mic)", conversation: "$(mic-filled)", listening: "$(mic-filled)", preparing: "$(loading~spin)", transcribing: "$(loading~spin)", speaking: "$(unmute)", waiting: "$(watch)", note: "$(mic-filled)", problem: "$(warning)" };
 
   // While speech is coming in the button shows the same mic with 1-3 waves
   // on red as the desktop voice does, so the two modes look alike.
