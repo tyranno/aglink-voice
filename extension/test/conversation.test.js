@@ -114,6 +114,25 @@ test("the wake word starts a conversation, the request is sent, the answer read 
   conv.stop();
 });
 
+test("with text only nothing is read: the request still goes, the answer and our own lines show as text", async () => {
+  const { conv, engine, sent, feed, until } = setup({ settings: { textOnly: true } });
+  await conv.start();
+  engine.text = "아글링크야, 오늘 할 일 정리해 줘.";
+  await feed(0.001, 500);
+  await feed(0.2, 800);
+  await feed(0.001, 700);
+  await until(() => sent.length === 1, "the request");
+  assert.ok(conv.onReply("할 일을 정리했어요."));
+  await until(() => conv.phase === "listening", "the mic after the answer");
+  assert.match(conv.flashText, /글로만/);
+  await conv.say("다시 들을게요. 말씀하세요.");
+  assert.strictEqual(conv.flashText, "다시 들을게요. 말씀하세요.");
+  assert.strictEqual(engine.ops("tts").length, 0, "nothing synthesized");
+  await conv.preview();
+  assert.strictEqual(engine.ops("tts").length > 0, true, "a preview asked for is still read");
+  conv.stop();
+});
+
 test("another voice is not sent once a voice is enrolled", async () => {
   const me = A.normalize([1, 0, 0, 0]);
   const { conv, engine, sent, feed, until } = setup({ settings: { listenMode: "always" }, store: { speaker: { base: me, ref: me } } });

@@ -22,7 +22,7 @@ const path = require("path");
 const { Engine } = require("./core/engine");
 const { Conversation } = require("./core/conversation");
 const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
-const { STANDALONE_PORT, ensureStopHook } = require("./hook");
+const { STANDALONE_PORT, ensureStopHook, ownsTurn } = require("./hook");
 const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
 
 const SECTION = "aglinkVoice";
@@ -189,6 +189,10 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     // Claude Code runs the hook for every session on this PC (the CLI,
     // aglink's); only VS Code's answers are read.
     if (h.entrypoint && h.entrypoint !== "claude-vscode") return;
+    // Only this window's folder: another window's answer is read there (or by
+    // the desktop app), not here as well.
+    const folders = (vscode.workspace.workspaceFolders || []).map((f) => (f.uri.scheme === "file" ? f.uri.fsPath : f.uri.path));
+    if (!ownsTurn(h.cwd, folders)) return;
     const md = h.last_assistant_message;
     if (!md) return;
     const receivedAt = Date.now();

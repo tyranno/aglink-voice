@@ -187,7 +187,7 @@ function html(nonce) {
   <label class="check"><input type="checkbox" id="summary"><span><b>긴 답은 요점만 읽기</b><br><span class="desc">긴 답은 앞부분 요점만 짧게 읽어요. 끄면 답 전체를 읽어요. 켜 둔 채로 "자세히 읽어 줘" 라고 하면 그 답만 전부 읽어요.</span></span></label>
 </div>
 <div class="row">
-  <label class="check"><input type="checkbox" id="textOnly"><span><b>말로 물어도 답은 글로만</b><br><span class="desc">말로 물어본 질문의 답을 소리로 읽지 않고 화면에 글로만 보여 줘요. "글로만 보여 줘", "다시 말로 해 줘" 라고 말해도 돼요.</span></span></label>
+  <label class="check"><input type="checkbox" id="textOnly"><span><b>읽기 끄기 (음성 입력만)</b><br><span class="desc">답과 안내 말을 소리로 읽지 않고 화면에 글로만 보여 줘요. 말로 입력하는 것만 쓰고 싶을 때 켜세요. "글로만 보여 줘", "다시 말로 해 줘" 라고 말해도 돼요.</span></span></label>
 </div>
 <div class="row">
   <label class="check"><input type="checkbox" id="readTyped"><span><b>타이핑한 질문 답도 읽기</b><br><span class="desc">손으로 입력한 질문의 답도 소리로 읽어 줘요. 음성 대화를 켜지 않아도 되고, 마이크는 쓰지 않아요. 읽는 중에 멈추려면 오른쪽 아래 버튼을 누르세요.</span></span></label>

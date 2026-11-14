@@ -107,7 +107,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
   function identity() {
     const f = vscode.workspace.workspaceFolders;
     return {
-      folder: f && f.length && f[0].uri.scheme === "file" ? f[0].uri.fsPath : "",
+      folder: f && f.length ? (f[0].uri.scheme === "file" ? f[0].uri.fsPath : f[0].uri.path) : "", // a Remote-SSH window's too, so the desktop app reads only its turns
       title: vscode.workspace.name || "",
       pid: process.ppid, // the VS Code main process, which owns the window
     };

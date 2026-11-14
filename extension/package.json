@@ -2,7 +2,7 @@
   "name": "aglink-voice",
   "displayName": "aglink 음성 — Claude Code 음성 대화",
   "description": "Claude Code 에 말로 묻고 답을 소리로 들어요. 받아쓰기(Whisper), 읽어 주기(Supertonic 목소리 10개), 등록한 목소리만 받기, \"아글링크\" 호출어가 모두 이 PC 안에서 돌아요.",
-  "version": "0.5.14",
+  "version": "0.5.15",
   "publisher": "aglink",
   "private": true,
   "engines": {
@@ -212,7 +212,7 @@
           "type": "boolean",
           "default": false,
           "order": 7,
-          "markdownDescription": "말로 물어본 질문의 답을 소리로 읽지 않고 글로만 보여 줘요. \"글로만 보여 줘\", \"다시 말로 해 줘\" 라고 말해도 돼요."
+          "markdownDescription": "읽기를 끄고 음성 입력만 써요. 답과 안내 말(\"네, 말씀하세요\" 같은)을 소리로 읽지 않고 상태 표시줄에 글로만 보여 줘요. \"글로만 보여 줘\", \"다시 말로 해 줘\" 라고 말해도 돼요."
         },
         "aglinkVoice.readTyped": {
           "type": "boolean",

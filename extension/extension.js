@@ -189,7 +189,7 @@ function activate(context) {
         { label: `$(unmute) 소리 나올 곳: ${deviceLabel(s.get("outputDevice"))}`, run: () => pickDevice("outputDevice", "outputs", "읽어 주는 소리가 나올 곳") },
         { label: "", kind: vscode.QuickPickItemKind.Separator },
         { label: `$(list-flat) 긴 답은 요점만 읽기: ${onOff(s.get("summary"))}`, run: () => set("summary", !s.get("summary")) },
-        { label: `$(file-text) 말로 물어도 답은 글로만: ${onOff(s.get("textOnly"))}`, run: () => set("textOnly", !s.get("textOnly")) },
+        { label: `$(file-text) 읽기 끄기 (음성 입력만): ${onOff(s.get("textOnly"))}`, run: () => set("textOnly", !s.get("textOnly")) },
         { label: `$(keyboard) 타이핑한 질문 답도 읽기: ${onOff(s.get("readTyped"))}`, run: () => set("readTyped", !s.get("readTyped")) },
         { label: `$(debug-pause) 읽는 중에 말하면 멈추기: ${onOff(s.get("barge"))}`, run: () => set("barge", !s.get("barge")) },
       );

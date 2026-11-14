@@ -846,7 +846,7 @@ class Conversation extends EventEmitter {
     this.awaiting = null;
     this.heard = "";
     this.log(`send failed: ${res?.error}`);
-    void this.speak((res && res.error) || "Claude Code 로 보내지 못했어요.", "full"); // the mic opens again after it
+    void this.say((res && res.error) || "Claude Code 로 보내지 못했어요."); // the mic opens again after it
   }
 
   // onReply is Claude Code's finished turn (the Stop hook). Only the answer to
@@ -950,7 +950,7 @@ class Conversation extends EventEmitter {
       await this.transcribeClip(null, null, rest);
       return;
     }
-    void this.speak("네, 말씀하세요.", "full"); // the mic opens as the reading goes, as after any reply
+    void this.say("네, 말씀하세요."); // the mic opens as the reading goes, as after any reply
   }
 
   async playChime() {
@@ -1085,14 +1085,20 @@ class Conversation extends EventEmitter {
     return this.speak(this.lastReply, mode);
   }
 
-  // say reads one of our own short sentences whole.
+  // say reads one of our own short sentences whole. With textOnly nothing is
+  // read: the sentence shows on the status bar and the mic opens right away.
   say(text) {
+    if (this.s.textOnly) {
+      this.flash(text);
+      if (this.conv && !this.rec && !this.enrolling) this.resumeListening();
+      return Promise.resolve();
+    }
     return this.speak(text, "full");
   }
 
   // preview reads a sample in the current voice and speed.
   preview() {
-    return this.say(`안녕하세요. ${T.voiceLabel(this.s.voice)} 목소리예요. 이 빠르기로 읽어 드릴게요.`);
+    return this.speak(`안녕하세요. ${T.voiceLabel(this.s.voice)} 목소리예요. 이 빠르기로 읽어 드릴게요.`, "full"); // asked for, so read even with textOnly
   }
 
   // ---- voice commands ----
@@ -1225,7 +1231,7 @@ class Conversation extends EventEmitter {
     this.render();
     let ok = false;
     try {
-      await this.say("지금부터 십오 초 동안 평소 말투로 아무 이야기나 해 주세요. 띵 소리가 나면 시작하세요.");
+      await this.speak("지금부터 십오 초 동안 평소 말투로 아무 이야기나 해 주세요. 띵 소리가 나면 시작하세요.", "full"); // read even with textOnly: a short flash is gone before the chime
       await this.playChime();
       this.enrollBuf = [];
       this.render();

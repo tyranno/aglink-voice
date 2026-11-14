@@ -104,4 +104,20 @@ function ensureStopHook(home = os.homedir(), node = hasNode()) {
   return true;
 }
 
-module.exports = { STANDALONE_PORT, DESKTOP_PORT, HOOK_MARK, HOOK_SCRIPT, HOOK_SCRIPT_PS, ensureStopHook, hookDir };
+// ownsTurn reports whether a turn that ran in cwd belongs to a window with
+// these folder paths (cwd is one of them or inside one). The hook reaches every
+// voice on the PC, so without this one window's voice reads another window's
+// answers — on top of the desktop app reading them for the window attached to
+// it, which is how one answer came out in two voices. A window with no folder,
+// or a turn without cwd, keeps the old read-everything behaviour.
+function ownsTurn(cwd, folders) {
+  if (!cwd || !folders || !folders.length) return true;
+  const norm = (p) => String(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const c = norm(cwd);
+  return folders.some((f) => {
+    const p = norm(f);
+    return p !== "" && (c === p || c.startsWith(p + "/"));
+  });
+}
+
+module.exports = { STANDALONE_PORT, DESKTOP_PORT, HOOK_MARK, HOOK_SCRIPT, HOOK_SCRIPT_PS, ensureStopHook, hookDir, ownsTurn };

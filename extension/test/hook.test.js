@@ -6,7 +6,7 @@ const http = require("http");
 const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
-const { ensureStopHook, HOOK_SCRIPT, HOOK_SCRIPT_PS, STANDALONE_PORT } = require("../hook");
+const { ensureStopHook, HOOK_SCRIPT, HOOK_SCRIPT_PS, STANDALONE_PORT, ownsTurn } = require("../hook");
 
 function tempHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "aglink-voice-"));
@@ -113,4 +113,14 @@ test("the PowerShell hook hands the turn to the extension too", { skip: process.
     srv.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("ownsTurn reads only this window's folder", () => {
+  assert.ok(ownsTurn("C:\\Users\\me\\proj", ["c:\\users\\me\\proj"]));
+  assert.ok(ownsTurn("C:\\Users\\me\\proj\\sub", ["c:\\users\\me\\proj\\"]));
+  assert.ok(!ownsTurn("C:\\Users\\me\\other", ["C:\\Users\\me\\proj"]));
+  assert.ok(ownsTurn("/home/me/proj/web", ["/home/me/proj"]));
+  assert.ok(!ownsTurn("/home/me/proj2", ["/home/me/proj"]));
+  assert.ok(ownsTurn("", ["/home/me/proj"]));
+  assert.ok(ownsTurn("/anywhere", []));
 });
