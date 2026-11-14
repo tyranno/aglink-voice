@@ -26,7 +26,7 @@ const { STANDALONE_PORT, ensureStopHook } = require("./hook");
 const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
 
 const SECTION = "aglinkVoice";
-const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge", "micDevice", "outputDevice"];
+const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge", "echoCancel", "micDevice", "outputDevice"];
 const READER_IDLE_MS = 10 * 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -203,8 +203,21 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   }
 
   function listen() {
+    // Loopback by default. When AGLINK_VOICE_TOKEN is set, bind the network
+    // interfaces too (token-gated) so a Stop hook running on a remote server can
+    // reach this PC's voice and have the reply read here. No token means no
+    // network exposure.
+    const tok = (process.env.AGLINK_VOICE_TOKEN || "").trim();
+    const bindHost = tok ? "0.0.0.0" : "127.0.0.1";
     return new Promise((resolve, reject) => {
       const srv = http.createServer((req, res) => {
+        if (tok) {
+          const got = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "").trim();
+          if (got !== tok) {
+            res.writeHead(401).end('{"error":"aglink-voice: token required"}');
+            return;
+          }
+        }
         if (req.method !== "POST" || req.url !== "/stop") {
           res.writeHead(404).end();
           return;
@@ -224,7 +237,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
         });
       });
       srv.once("error", reject);
-      srv.listen(STANDALONE_PORT, "127.0.0.1", () => resolve(srv));
+      srv.listen(STANDALONE_PORT, bindHost, () => resolve(srv));
     });
   }
 

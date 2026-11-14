@@ -23,11 +23,17 @@ let d = "";
 let left = 2;
 const done = () => process.exit(0);
 setTimeout(done, 3000);
+// In a Remote-SSH session SSH_CONNECTION's first field is the client PC's IP, so
+// the voice runs where the person is; locally it is empty and we use loopback.
+const host = (process.env.SSH_CONNECTION || "").trim().split(" ")[0] || "127.0.0.1";
+const tok = (process.env.AGLINK_VOICE_TOKEN || "").trim();
+const hdr = { "Content-Type": "application/json" };
+if (tok) hdr["Authorization"] = "Bearer " + tok;
 process.stdin.on("data", (c) => (d += c)).on("end", () => {
   try { const h = JSON.parse(d); h.entrypoint = process.env.CLAUDE_CODE_ENTRYPOINT || ""; d = JSON.stringify(h); } catch {}
   for (const port of [${STANDALONE_PORT}, ${DESKTOP_PORT}]) {
     const r = require("http").request(
-      { host: "127.0.0.1", port, path: port === ${DESKTOP_PORT} ? "/vscode/stop" : "/stop", method: "POST", headers: { "Content-Type": "application/json" }, timeout: 1500 },
+      { host, port, path: port === ${DESKTOP_PORT} ? "/vscode/stop" : "/stop", method: "POST", headers: hdr, timeout: 1500 },
       (res) => { res.resume(); res.on("end", () => --left || done()); }
     );
     r.on("error", () => --left || done());
