@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { TTS_VOICES, voiceLabel, cleanWakeNames, MAX_WAKE_NAMES } = require("./core/text");
 
 const SECTION = "aglinkVoice";
-const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "micDevice", "outputDevice", "source", "enginePath", "engineRoot"];
+const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "micDevice", "outputDevice", "source", "whisperServer", "enginePath", "engineRoot"];
 
 let panel = null;
 
@@ -182,6 +182,13 @@ function html(nonce) {
   <p class="desc">호출어 방식에서 이만큼 말이 없으면 대화를 끝내고 다시 부를 때까지 기다려요.</p>
 </div>
 
+<h2>음성 인식</h2>
+<div class="row">
+  <label class="title" for="whisperServer">받아쓰기 서버 (비우면 이 PC)</label>
+  <input type="text" id="whisperServer" placeholder="비워 두면 이 PC (로컬)">
+  <p class="desc">받아쓰기(말 → 글)를 어디서 할지예요. 비워 두면 <b>이 PC</b>에서 인식해요. <code>http://호스트:8178</code> 처럼 서버 주소를 넣으면 그 <b>서버(GPU)</b>의 whisper 로 인식해 더 빠르고 정확할 수 있어요 (예: http://192.168.11.25:8178). 아래 '어느 음성을 쓸지'가 '이 확장의 엔진'(standalone) 이거나, 데스크톱 앱이 꺼진 '알아서'일 때 쓰여요. 바꾼 뒤 음성을 껐다 켜면 적용돼요.</p>
+</div>
+
 <h2>답 읽기</h2>
 <div class="row">
   <label class="check"><input type="checkbox" id="summary"><span><b>긴 답은 요점만 읽기</b><br><span class="desc">긴 답은 앞부분 요점만 짧게 읽어요. 끄면 답 전체를 읽어요. 켜 둔 채로 "자세히 읽어 줘" 라고 하면 그 답만 전부 읽어요.</span></span></label>
@@ -286,7 +293,7 @@ function html(nonce) {
   for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).addEventListener("change", (e) => set(id, e.target.checked));
   for (const name of ["listenMode", "source"])
     for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.addEventListener("change", (e) => e.target.checked && set(name, e.target.value));
-  for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
+  for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
   for (const id of ["toggle", "preview", "enroll", "unenroll", "native", "pickMic", "pickOutput"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
 
   window.addEventListener("message", ({ data: m }) => {
@@ -301,7 +308,7 @@ function html(nonce) {
     for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).checked = !!v[id];
     for (const name of ["listenMode", "source"])
       for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.checked = r.value === v[name];
-    for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot"]) {
+    for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) {
       if (document.activeElement === $(id)) continue; // not under the cursor
       $(id).value = Array.isArray(v[id]) ? v[id].join(", ") : v[id] || "";
     }
