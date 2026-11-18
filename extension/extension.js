@@ -1,18 +1,16 @@
 // aglink voice for Claude Code in VS Code: say a request, hear the answer.
 //
-// Two ways to the same conversation, one status bar button:
-// - the aglink desktop app, when it is running (desktoplink.js) — its voice
-//   and settings are used as they are;
-// - otherwise the engine installed with this extension (standalone.js), with
-//   the settings under aglinkVoice.* here.
-// aglinkVoice.source picks one for good; "auto" prefers the desktop app.
+// Fully standalone: always the engine installed with this extension
+// (standalone.js), with the settings under aglinkVoice.* here. It has NO
+// connection to the aglink desktop app — recognition, reading and the Stop
+// hook all stay within this extension.
 //
 // The mic button turns voice on and off; the gear beside it opens a menu of
 // the everyday settings; settingsPanel.js is the full settings screen.
 "use strict";
 
 const vscode = require("vscode");
-const { createVoice } = require("./desktoplink");
+// VS Code voice is fully standalone — it never links to the aglink desktop app.
 const { createStandalone } = require("./standalone");
 const { openSettings } = require("./settingsPanel");
 const { TTS_VOICES, voiceLabel } = require("./core/text");
@@ -75,22 +73,14 @@ function activate(context) {
     else skipItem.hide();
   };
 
-  let desktop = null;
+  const desktop = null; // VS Code voice never links to the desktop app
   let standalone = null;
   const cfg = () => vscode.workspace.getConfiguration("aglinkVoice");
-  const source = () => cfg().get("source") || "auto";
-  // mode: which of the two the button is for right now. One that is on keeps it.
-  const mode = () => {
-    if (standalone && standalone.on) return "standalone";
-    if (desktop && desktop.on && desktop.linked) return "desktop";
-    const src = source();
-    if (src === "desktop" || src === "standalone") return src;
-    return desktop && desktop.linked ? "desktop" : "standalone";
-  };
-  const render = () => (mode() === "desktop" ? desktop : standalone)?.render();
+  // Always this extension's own engine — there is no desktop mode.
+  const mode = () => "standalone";
+  const render = () => standalone?.render();
 
-  standalone = createStandalone(vscode, context, log, { item, active: () => mode() === "standalone", elsewhere: () => !!(desktop && desktop.on && desktop.linked), showSend });
-  desktop = createVoice(vscode, log, { item, active: () => mode() === "desktop", onLink: render, showSend });
+  standalone = createStandalone(vscode, context, log, { item, active: () => true, elsewhere: () => false, showSend });
   render();
 
   const sendNow = () => (mode() === "desktop" ? desktop.sendNow() : standalone.sendNow());
@@ -223,7 +213,6 @@ function activate(context) {
     }),
   );
   disposeAll = () => {
-    desktop.dispose();
     standalone.dispose();
   };
 }

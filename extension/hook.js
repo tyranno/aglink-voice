@@ -15,12 +15,12 @@ const DESKTOP_PORT = 48230;
 const HOOK_MARK = "aglink-voice-stop-hook";
 const OLD_HOOK_MARK = "vscode-voice-hook"; // aglink-vscode's, desktop only
 
-const HOOK_SCRIPT = `// ${HOOK_MARK}: hands Claude Code's finished turn to the aglink voice
-// (the VS Code extension on ${STANDALONE_PORT}, the aglink desktop app on ${DESKTOP_PORT}),
-// which reads it out when voice is on. Never fails the turn. entrypoint says
-// which Claude Code ran it (claude-vscode for VS Code's).
+const HOOK_SCRIPT = `// ${HOOK_MARK}: hands Claude Code's finished turn to the aglink
+// VS Code voice extension on ${STANDALONE_PORT}, which reads it out when voice is on.
+// Standalone only — it never contacts the aglink desktop app. Never fails the
+// turn. entrypoint says which Claude Code ran it (claude-vscode for VS Code's).
 let d = "";
-let left = 2;
+let left = 1;
 const done = () => process.exit(0);
 setTimeout(done, 3000);
 // In a Remote-SSH session SSH_CONNECTION's first field is the client PC's IP, so
@@ -31,9 +31,9 @@ const hdr = { "Content-Type": "application/json" };
 if (tok) hdr["Authorization"] = "Bearer " + tok;
 process.stdin.on("data", (c) => (d += c)).on("end", () => {
   try { const h = JSON.parse(d); h.entrypoint = process.env.CLAUDE_CODE_ENTRYPOINT || ""; d = JSON.stringify(h); } catch {}
-  for (const port of [${STANDALONE_PORT}, ${DESKTOP_PORT}]) {
+  for (const port of [${STANDALONE_PORT}]) {
     const r = require("http").request(
-      { host, port, path: port === ${DESKTOP_PORT} ? "/vscode/stop" : "/stop", method: "POST", headers: hdr, timeout: 1500 },
+      { host, port, path: "/stop", method: "POST", headers: hdr, timeout: 1500 },
       (res) => { res.resume(); res.on("end", () => --left || done()); }
     );
     r.on("error", () => --left || done());
@@ -45,8 +45,8 @@ process.stdin.on("data", (c) => (d += c)).on("end", () => {
 
 // The same for PCs without Node.js (a company PC with only VS Code and Claude
 // Code): Windows PowerShell is always there. Slower to start, so only then.
-const HOOK_SCRIPT_PS = `# ${HOOK_MARK}: hands Claude Code's finished turn to the aglink voice
-# (the VS Code extension on ${STANDALONE_PORT}, the aglink desktop app on ${DESKTOP_PORT}).
+const HOOK_SCRIPT_PS = `# ${HOOK_MARK}: hands Claude Code's finished turn to the aglink
+# VS Code voice extension on ${STANDALONE_PORT} (standalone only — never the desktop app).
 # Never fails the turn.
 $ErrorActionPreference = 'SilentlyContinue'
 $ms = New-Object IO.MemoryStream
@@ -58,7 +58,7 @@ if ($body.StartsWith('{')) {
   $body = '{"entrypoint":"' + $ep + '"' + $(if ($rest.StartsWith('}')) { '' } else { ',' }) + $rest
 }
 $bytes = [Text.Encoding]::UTF8.GetBytes($body)
-foreach ($u in 'http://127.0.0.1:${STANDALONE_PORT}/stop', 'http://127.0.0.1:${DESKTOP_PORT}/vscode/stop') {
+foreach ($u in 'http://127.0.0.1:${STANDALONE_PORT}/stop') {
   try { Invoke-WebRequest -Uri $u -Method Post -Body $bytes -ContentType 'application/json' -UseBasicParsing -TimeoutSec 2 | Out-Null } catch {}
 }
 exit 0

@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { TTS_VOICES, voiceLabel, cleanWakeNames, MAX_WAKE_NAMES } = require("./core/text");
 
 const SECTION = "aglinkVoice";
-const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "micDevice", "outputDevice", "source", "whisperServer", "enginePath", "engineRoot"];
+const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "micDevice", "outputDevice", "whisperServer", "enginePath", "engineRoot"];
 
 let panel = null;
 
@@ -131,7 +131,6 @@ function html(nonce) {
   <button id="toggle">음성 대화 켜기</button>
   <span class="desc">단축키 Ctrl+Alt+V, 또는 오른쪽 아래 "음성" 버튼</span>
 </div>
-<div class="banner" id="desktopBanner" hidden>지금은 aglink 데스크톱 앱의 음성을 쓰고 있어서, 목소리·빠르기 같은 설정은 데스크톱 앱 설정을 따라요. 아래 설정은 이 확장의 엔진을 쓸 때 적용돼요 (맨 아래 "고급"에서 바꿀 수 있어요).</div>
 
 <h2>목소리</h2>
 <div class="row">
@@ -186,7 +185,7 @@ function html(nonce) {
 <div class="row">
   <label class="title" for="whisperServer">받아쓰기 서버 (비우면 이 PC)</label>
   <input type="text" id="whisperServer" placeholder="비워 두면 이 PC (로컬)">
-  <p class="desc">받아쓰기(말 → 글)를 어디서 할지예요. 비워 두면 <b>이 PC</b>에서 인식해요. <code>http://호스트:8178</code> 처럼 서버 주소를 넣으면 그 <b>서버(GPU)</b>의 whisper 로 인식해 더 빠르고 정확할 수 있어요 (예: http://192.168.11.25:8178). 아래 '어느 음성을 쓸지'가 '이 확장의 엔진'(standalone) 이거나, 데스크톱 앱이 꺼진 '알아서'일 때 쓰여요. 바꾼 뒤 음성을 껐다 켜면 적용돼요.</p>
+  <p class="desc">받아쓰기(말 → 글)를 어디서 할지예요. 비워 두면 <b>이 PC</b>에서 인식해요. <code>http://호스트:8178</code> 처럼 서버 주소를 넣으면 그 <b>서버(GPU)</b>의 whisper 로 인식해 더 빠르고 정확할 수 있어요 (예: http://192.168.11.25:8178). 바꾼 뒤 음성을 껐다 켜면 적용돼요.</p>
 </div>
 
 <h2>답 읽기</h2>
@@ -244,12 +243,6 @@ function html(nonce) {
 <details>
 <summary>고급</summary>
 <div class="row">
-  <label class="title">어느 음성을 쓸지</label>
-  <label class="radio"><input type="radio" name="source" value="auto"><span><b>알아서</b><br><span class="desc">aglink 데스크톱 앱이 켜져 있으면 그 앱의 음성을, 아니면 이 확장의 엔진을 써요.</span></span></label>
-  <label class="radio"><input type="radio" name="source" value="standalone"><span><b>늘 이 확장의 엔진</b><br><span class="desc">데스크톱 앱이 켜져 있어도 이 확장의 엔진과 위 설정을 써요.</span></span></label>
-  <label class="radio"><input type="radio" name="source" value="desktop"><span><b>늘 데스크톱 앱</b><br><span class="desc">aglink 데스크톱 앱의 음성과 설정을 써요.</span></span></label>
-</div>
-<div class="row">
   <label class="title" for="enginePath">음성 엔진 위치</label>
   <input type="text" id="enginePath" placeholder="비워 두면 설치된 곳 (%LOCALAPPDATA%\\aglink-voice\\engine\\aglink-voice-engine.exe)">
 </div>
@@ -291,7 +284,7 @@ function html(nonce) {
   $("speakerMin").addEventListener("change", (e) => set("speakerMin", Number(e.target.value)));
   $("wakeIdleMin").addEventListener("change", (e) => set("wakeIdleMin", Number(e.target.value)));
   for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).addEventListener("change", (e) => set(id, e.target.checked));
-  for (const name of ["listenMode", "source"])
+  for (const name of ["listenMode"])
     for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.addEventListener("change", (e) => e.target.checked && set(name, e.target.value));
   for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
   for (const id of ["toggle", "preview", "enroll", "unenroll", "native", "pickMic", "pickOutput"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
@@ -306,7 +299,7 @@ function html(nonce) {
     $("speakerMinValue").textContent = fmt(v.speakerMin, 2);
     $("wakeIdleMin").value = String(v.wakeIdleMin);
     for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).checked = !!v[id];
-    for (const name of ["listenMode", "source"])
+    for (const name of ["listenMode"])
       for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.checked = r.value === v[name];
     for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) {
       if (document.activeElement === $(id)) continue; // not under the cursor
@@ -318,7 +311,6 @@ function html(nonce) {
     $("toggle").textContent = m.on ? "음성 대화 끄기" : "음성 대화 켜기";
     $("enrolled").textContent = m.enrolled ? "목소리 등록됨" : "등록 안 됨";
     $("unenroll").disabled = !m.enrolled;
-    $("desktopBanner").hidden = !m.desktop;
   });
   vscode.postMessage({ type: "ready" });
 </script>

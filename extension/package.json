@@ -2,7 +2,7 @@
   "name": "aglink-voice",
   "displayName": "aglink 음성 — Claude Code 음성 대화",
   "description": "Claude Code 에 말로 묻고 답을 소리로 들어요. 받아쓰기(Whisper), 읽어 주기(Supertonic 목소리 10개), 등록한 목소리만 받기, \"아글링크\" 호출어가 모두 이 PC 안에서 돌아요.",
-  "version": "0.5.17",
+  "version": "0.5.18",
   "publisher": "aglink",
   "private": true,
   "engines": {
@@ -245,22 +245,6 @@
           "default": "",
           "order": 10,
           "markdownDescription": "읽어 주는 소리가 나올 곳이에요. 비워 두면 **윈도우 기본 출력 장치**로 나와요. 블루투스 이어폰의 마이크를 쓰는 동안은 그 이어폰 소리가 전화 음질이 되니, 소리는 PC 스피커로 고르는 것도 방법이에요."
-        },
-        "aglinkVoice.source": {
-          "type": "string",
-          "default": "auto",
-          "enum": [
-            "auto",
-            "standalone",
-            "desktop"
-          ],
-          "enumDescriptions": [
-            "알아서: aglink 데스크톱 앱이 켜져 있으면 그 앱의 음성을, 아니면 이 확장의 엔진을 써요.",
-            "늘 이 확장의 엔진과 여기 설정을 써요.",
-            "늘 aglink 데스크톱 앱의 음성과 설정을 써요."
-          ],
-          "order": 11,
-          "markdownDescription": "어느 음성을 쓸지예요."
         },
         "aglinkVoice.whisperServer": {
           "type": "string",
