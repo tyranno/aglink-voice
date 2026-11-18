@@ -104,6 +104,12 @@ test("a long first sentence is read in two only at a comma, never at a bare spac
   assert.deepStrictEqual(T.splitLead(["네, 시험용으로 여러 문단을 읽어 드릴게요."], 20), ["네, 시험용으로 여러 문단을 읽어 드릴게요."]);
   assert.deepStrictEqual(T.splitLead(["설정 파일을 고쳤고요, 다시 빌드해서 확인까지 마쳤습니다."], 20), ["설정 파일을 고쳤고요,", "다시 빌드해서 확인까지 마쳤습니다."]);
   const word = "가나다라마바사아자차카타파하가나다라마바사";
-  assert.deepStrictEqual(T.splitLead([word], 20), [word]);
-  assert.deepStrictEqual(T.splitLead([], 20), []);
+  assert.deepStrictEqual(T.splitLead([word], 30), [word]);
+  assert.deepStrictEqual(T.splitLead([], 30), []);
+});
+
+test("wakePrompt lists the wake names to prime recognition", () => {
+  assert.strictEqual(T.wakePrompt({ wakeDefault: true, wakeNames: [] }), "아글링크");
+  assert.strictEqual(T.wakePrompt({ wakeDefault: true, wakeNames: ["길동이"] }), "아글링크, 길동이");
+  assert.strictEqual(T.wakePrompt({ wakeDefault: false, wakeNames: ["길동이"] }), "길동이");
 });

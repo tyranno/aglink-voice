@@ -469,6 +469,15 @@ function wakeNameLabel({ wakeNames = [] } = {}) {
   return wakeNames[0] || "아글링크";
 }
 
+// wakePrompt is the wake names as a Whisper initial prompt: hearing a short
+// lone name ("아글링크", "길동아") the CPU model often mis-transcribes it, so
+// priming it with the names it should expect sharply raises the hit rate. Used
+// only on the wake clip, never on dictation, so it does not skew normal text.
+function wakePrompt({ wakeDefault = true, wakeNames = [] } = {}) {
+  const names = [...(wakeDefault ? ["아글링크"] : []), ...wakeNames];
+  return names.join(", ");
+}
+
 // parseCommand tells which voice command text is, or null when it is meant for
 // Claude Code. Each command has to be the whole sentence (give or take a "줘"),
 // so a question that merely mentions one is still sent. current is the voice
@@ -534,5 +543,6 @@ module.exports = {
   matchWakeName,
   wakeMatch,
   wakeNameLabel,
+  wakePrompt,
   stopMatch,
 };

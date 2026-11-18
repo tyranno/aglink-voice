@@ -209,7 +209,7 @@ function activate(context) {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("aglinkVoice")) render();
       if (e.affectsConfiguration("aglinkVoice.readTyped")) void standalone.syncReadTyped();
-      if (e.affectsConfiguration("aglinkVoice.micDevice")) standalone.micDeviceChanged();
+      if (e.affectsConfiguration("aglinkVoice.micDevice") || e.affectsConfiguration("aglinkVoice.echoCancel")) standalone.micDeviceChanged();
     }),
   );
   disposeAll = () => {

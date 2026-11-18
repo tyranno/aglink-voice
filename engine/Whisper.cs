@@ -131,12 +131,16 @@ namespace AglinkVoice
             }
         }
 
-        static string Post(byte[] wav, TimeSpan timeout)
+        static string Post(byte[] wav, TimeSpan timeout, string prompt = "")
         {
             using var form = new MultipartFormDataContent();
             form.Add(new ByteArrayContent(wav), "file", "clip.wav");
             form.Add(new StringContent("text"), "response_format");
             form.Add(new StringContent("ko"), "language");
+            // An initial prompt primes the decoder toward these words (the wake
+            // names): it lifts the hit rate on a short lone name a CPU model
+            // would otherwise mis-hear. Only the caller that passes one is biased.
+            if (!string.IsNullOrEmpty(prompt)) form.Add(new StringContent(prompt), "prompt");
             using var cts = new CancellationTokenSource(timeout);
             var res = http.PostAsync(baseUrl + "/inference", form, cts.Token).GetAwaiter().GetResult();
             var body = res.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -144,7 +148,7 @@ namespace AglinkVoice
             return body;
         }
 
-        public static string Transcribe(byte[] wav)
+        public static string Transcribe(byte[] wav, string prompt = "")
         {
             if (State is "idle") throw new Exception("음성 인식이 꺼져 있어요");
             if (State is "starting") throw new Exception("음성 인식을 준비하고 있어요");
@@ -152,7 +156,7 @@ namespace AglinkVoice
             one.Wait();
             try
             {
-                return Clean(Post(AudioCleanup.Process(wav, CleanupLevel), TimeSpan.FromMinutes(2)));
+                return Clean(Post(AudioCleanup.Process(wav, CleanupLevel), TimeSpan.FromMinutes(2), prompt));
             }
             finally
             {

@@ -84,6 +84,21 @@ function clipSeconds(wav) {
   return wav ? (wav.length - 44) / (RATE * 2) : 0;
 }
 
+// prependSilence puts ms of silence before a mono 16-bit PCM WAV (what the
+// engine's reading clips are). A Bluetooth output suspends its stream when idle
+// and takes a moment to wake; without a silent lead the stream wakes during the
+// first words and the opening of a reading is lost. The silence gives it that
+// moment. Returns the clip unchanged when there is nothing to pad.
+function prependSilence(wav, ms) {
+  if (!wav || wav.length <= 44 || !(ms > 0)) return wav;
+  const rate = wav.readUInt32LE(24) || RATE;
+  const n = (wav.length - 44) >> 1;
+  const pad = Math.round((rate * ms) / 1000);
+  const out = new Float32Array(pad + n); // leading `pad` samples are already 0
+  for (let i = 0; i < n; i++) out[pad + i] = wav.readInt16LE(44 + i * 2) / 32768;
+  return encodeWav(out, rate);
+}
+
 // wavEnvelope: the RMS of each REF_FRAME_MS of a 16-bit or float PCM WAV.
 function wavEnvelope(bytes) {
   try {
@@ -168,4 +183,4 @@ function wavSlice(wav, from, to) {
   return out;
 }
 
-module.exports = { RATE, REF_FRAME_MS, pcmToFloat, rms, concat, encodeWav, loudForSpeech, clipSeconds, wavSlice, wavEnvelope, chimeWav, normalize, cosine };
+module.exports = { RATE, REF_FRAME_MS, pcmToFloat, rms, concat, encodeWav, loudForSpeech, clipSeconds, prependSilence, wavSlice, wavEnvelope, chimeWav, normalize, cosine };

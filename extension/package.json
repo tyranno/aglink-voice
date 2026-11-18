@@ -2,7 +2,7 @@
   "name": "aglink-voice",
   "displayName": "aglink 음성 — Claude Code 음성 대화",
   "description": "Claude Code 에 말로 묻고 답을 소리로 들어요. 받아쓰기(Whisper), 읽어 주기(Supertonic 목소리 10개), 등록한 목소리만 받기, \"아글링크\" 호출어가 모두 이 PC 안에서 돌아요.",
-  "version": "0.5.20",
+  "version": "0.5.21",
   "publisher": "aglink",
   "private": true,
   "engines": {
@@ -227,6 +227,12 @@
           "maximum": 0.7,
           "order": 9,
           "markdownDescription": "등록한 목소리와 얼마나 비슷해야 받을지예요. 높을수록 다른 사람 말을 잘 거르지만 내 말도 가끔 놓칠 수 있어요. 보통 0.4. 목소리를 등록해야 쓰여요."
+        },
+        "aglinkVoice.echoCancel": {
+          "type": "boolean",
+          "default": true,
+          "order": 11,
+          "markdownDescription": "마이크를 \"통화용\"으로 열어서 윈도우의 에코 제거와 잡음 억제를 써요. 스피커폰·스피커로 답을 읽을 때 그 소리를 내 말로 받아 적는 일이 줄어요. 마이크 장치(드라이버)가 지원해야 효과가 있고, 안 되면 저절로 예전 방식으로 돌아가요."
         },
         "aglinkVoice.barge": {
           "type": "boolean",

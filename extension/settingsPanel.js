@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { TTS_VOICES, voiceLabel, cleanWakeNames, MAX_WAKE_NAMES } = require("./core/text");
 
 const SECTION = "aglinkVoice";
-const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "micDevice", "outputDevice", "whisperServer", "micCleanup", "enginePath", "engineRoot"];
+const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "echoCancel", "speakerMin", "micDevice", "outputDevice", "whisperServer", "micCleanup", "enginePath", "engineRoot"];
 
 let panel = null;
 
@@ -208,6 +208,10 @@ function html(nonce) {
   <label class="check"><input type="checkbox" id="readTyped"><span><b>타이핑한 질문 답도 읽기</b><br><span class="desc">손으로 입력한 질문의 답도 소리로 읽어 줘요. 음성 대화를 켜지 않아도 되고, 마이크는 쓰지 않아요. 읽는 중에 멈추려면 오른쪽 아래 버튼을 누르세요.</span></span></label>
 </div>
 
+<h2>에코 제거</h2>
+<div class="row">
+  <label class="check"><input type="checkbox" id="echoCancel"><span><b>윈도우 에코 제거 쓰기</b><br><span class="desc">마이크를 통화용으로 열어서, 스피커로 나오는 읽는 소리가 내 말로 받아 적히는 걸 줄여요. 마이크 장치가 지원해야 효과가 있고, 안 되면 저절로 예전 방식으로 돌아가요. 바꾸면 마이크가 잠깐 다시 열려요.</span></span></label>
+</div>
 <h2>끼어들기</h2>
 <div class="row">
   <label class="check"><input type="checkbox" id="barge"><span><b>읽는 중에 말하면 멈추고 듣기</b><br><span class="desc">답을 읽는 도중에 말하면 읽기를 멈추고 바로 들어요. 끄면 다 읽은 뒤에 말을 받아요. 스피커 소리가 마이크로 들어가면 저절로 멈출 수 있으니, 헤드셋을 쓸 때 켜는 게 좋아요.</span></span></label>
@@ -293,7 +297,7 @@ function html(nonce) {
   $("speakerMin").addEventListener("change", (e) => set("speakerMin", Number(e.target.value)));
   $("wakeIdleMin").addEventListener("change", (e) => set("wakeIdleMin", Number(e.target.value)));
   $("micCleanup").addEventListener("change", (e) => set("micCleanup", e.target.value));
-  for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).addEventListener("change", (e) => set(id, e.target.checked));
+  for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge", "echoCancel"]) $(id).addEventListener("change", (e) => set(id, e.target.checked));
   for (const name of ["listenMode"])
     for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.addEventListener("change", (e) => e.target.checked && set(name, e.target.value));
   for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
@@ -309,7 +313,7 @@ function html(nonce) {
     $("speakerMinValue").textContent = fmt(v.speakerMin, 2);
     $("wakeIdleMin").value = String(v.wakeIdleMin);
     $("micCleanup").value = v.micCleanup || "off";
-    for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).checked = !!v[id];
+    for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge", "echoCancel"]) $(id).checked = !!v[id];
     for (const name of ["listenMode"])
       for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.checked = r.value === v[name];
     for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) {

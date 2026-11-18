@@ -223,13 +223,22 @@ test("the picked mic opens on start, a new pick reopens it, and blank means Wind
 
   values.micDevice = "";
   await conv.micDeviceChanged();
-  assert.deepStrictEqual(engine.ops("mic").pop(), { op: "mic", on: true, device: "" });
+  assert.deepStrictEqual(engine.ops("mic").pop(), { op: "mic", on: true, device: "", aec: true });
 
   conv.stop();
   const before = engine.ops("mic").length;
   values.micDevice = "다른 마이크";
   await conv.micDeviceChanged(); // off: nothing opens now, the next start uses it
   assert.strictEqual(engine.ops("mic").length, before);
+});
+
+test("echo cancellation is asked of the engine unless it is switched off", async () => {
+  const { conv, engine, values } = setup({});
+  await conv.start();
+  assert.strictEqual(engine.ops("mic").pop().aec, true);
+  values.echoCancel = false;
+  await conv.micDeviceChanged();
+  assert.strictEqual(engine.ops("mic").pop().aec, false);
 });
 
 test("the reading plays on the picked output, and a missing device is logged", async () => {
@@ -301,7 +310,7 @@ test("a quiet speaker's soft speech still counts once their level is known, and 
   assert.ok(Math.sqrt(s / 8000) > 0.05, "turned up for Whisper");
 });
 
-test("a long first sentence is read lead-first, every piece at full quality", async () => {
+test("a long first sentence is split lead-first at a comma, every piece at full quality", async () => {
   const { conv, engine } = setup();
   conv.onReply("회의 자료를 정리했고요, 팀원들에게 메일로 보냈습니다. 확인해 주세요.");
   await conv.speak("회의 자료를 정리했고요, 팀원들에게 메일로 보냈습니다. 확인해 주세요.", "full");

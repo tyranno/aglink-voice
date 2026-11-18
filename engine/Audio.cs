@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using SoundTouch;
 using Supertonic;
@@ -277,38 +278,165 @@ namespace AglinkVoice
     static class Mic
     {
         static WaveInEvent? dev;
+        static Thread? aecThread;
+        static volatile bool aecRun;
         static string devName = "";
+        static bool devAec;
         static readonly object mu = new();
 
-        public static void Set(bool on, string device = "")
+        static void Stop()
+        {
+            if (dev != null)
+            {
+                dev.StopRecording();
+                dev.Dispose();
+                dev = null;
+            }
+            if (aecThread != null)
+            {
+                aecRun = false;
+                aecThread.Join(1000);
+                aecThread = null;
+            }
+        }
+
+        // aec opens the mic as a "communications" stream: Windows then applies
+        // its echo cancellation (against what the speakers play) and noise
+        // suppression when the device's driver supports them. If it cannot be
+        // opened that way the plain capture is used and "aec" says why.
+        public static void Set(bool on, string device = "", bool aec = false)
         {
             lock (mu)
             {
                 device ??= "";
-                if (on && dev != null && device == devName) return;
-                if (!on && dev == null) return;
-                if (dev != null)
-                {
-                    dev.StopRecording();
-                    dev.Dispose();
-                    dev = null;
-                }
+                bool running = dev != null || aecThread != null;
+                if (on && running && device == devName && aec == devAec) return;
+                if (!on && !running) return;
+                Stop();
                 if (!on) return;
-                int? number = Devices.InputNumber(device);
-                if (number == null) Engine.Send(new { ev = "deviceMissing", kind = "mic", name = device });
-                var d = new WaveInEvent { DeviceNumber = number ?? -1, WaveFormat = new WaveFormat(16000, 16, 1), BufferMilliseconds = 50, NumberOfBuffers = 4 };
-                d.DataAvailable += (_, e) =>
-                {
-                    if (e.BytesRecorded > 0) Engine.Send(new { ev = "mic", pcm = Convert.ToBase64String(e.Buffer, 0, e.BytesRecorded) });
-                };
-                d.RecordingStopped += (_, e) =>
-                {
-                    if (e.Exception != null) Engine.Send(new { ev = "micError", error = e.Exception.Message });
-                };
-                d.StartRecording();
-                dev = d;
                 devName = device;
+                devAec = aec;
+                if (aec)
+                {
+                    try { StartAec(device); return; }
+                    catch (Exception ex)
+                    {
+                        Engine.Send(new { ev = "aec", on = false, error = ex.Message });
+                        devAec = false;
+                    }
+                }
+                StartPlain(device);
             }
+        }
+
+        static void StartPlain(string device)
+        {
+            int? number = Devices.InputNumber(device);
+            if (number == null) Engine.Send(new { ev = "deviceMissing", kind = "mic", name = device });
+            var d = new WaveInEvent { DeviceNumber = number ?? -1, WaveFormat = new WaveFormat(16000, 16, 1), BufferMilliseconds = 50, NumberOfBuffers = 4 };
+            d.DataAvailable += (_, e) =>
+            {
+                if (e.BytesRecorded > 0) Engine.Send(new { ev = "mic", pcm = Convert.ToBase64String(e.Buffer, 0, e.BytesRecorded) });
+            };
+            d.RecordingStopped += (_, e) =>
+            {
+                if (e.Exception != null) Engine.Send(new { ev = "micError", error = e.Exception.Message });
+            };
+            d.StartRecording();
+            dev = d;
+        }
+
+        static MMDevice FindCapture(string name)
+        {
+            using var en = new MMDeviceEnumerator();
+            if (name.Length > 0)
+            {
+                // WinMM names are cut at 31 characters; the endpoint's are not.
+                foreach (var m in en.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active))
+                    if (m.FriendlyName.StartsWith(name, StringComparison.OrdinalIgnoreCase) || name.StartsWith(m.FriendlyName, StringComparison.OrdinalIgnoreCase))
+                        return m;
+                Engine.Send(new { ev = "deviceMissing", kind = "mic", name });
+            }
+            return en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
+        }
+
+        // NAudio 2.2 does not expose IAudioClient2, so reach the COM object under
+        // its AudioClient and tell it this is a communications stream before Initialize.
+        [StructLayout(LayoutKind.Sequential)]
+        struct ClientProps { public uint cbSize; public int offload; public int category; public int options; }
+
+        [ComImport, Guid("726778CD-F60A-4eda-82DE-E47610CD78AA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IAudioClient2
+        {
+            [PreserveSig] int Initialize(); [PreserveSig] int GetBufferSize(); [PreserveSig] int GetStreamLatency();
+            [PreserveSig] int GetCurrentPadding(); [PreserveSig] int IsFormatSupported(); [PreserveSig] int GetMixFormat();
+            [PreserveSig] int GetDevicePeriod(); [PreserveSig] int Start(); [PreserveSig] int Stop(); [PreserveSig] int Reset();
+            [PreserveSig] int SetEventHandle(); [PreserveSig] int GetService();
+            [PreserveSig] int IsOffloadCapable();
+            [PreserveSig] int SetClientProperties(ref ClientProps p);
+            [PreserveSig] int GetBufferSizeLimits();
+        }
+
+        static void SetCommunications(AudioClient client)
+        {
+            object? com = null;
+            foreach (var f in typeof(AudioClient).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic))
+                if (f.FieldType.Name == "IAudioClient") { com = f.GetValue(client); break; }
+            if (com is not IAudioClient2 c2) throw new InvalidOperationException("no IAudioClient2");
+            var p = new ClientProps { cbSize = (uint)Marshal.SizeOf<ClientProps>(), offload = 0, category = 3 /* Communications */, options = 0 };
+            int hr = c2.SetClientProperties(ref p);
+            if (hr != 0) throw new InvalidOperationException("SetClientProperties 0x" + hr.ToString("X"));
+        }
+
+        static void StartAec(string device)
+        {
+            var mm = FindCapture(device);
+            var client = mm.AudioClient;
+            SetCommunications(client);
+            var fmt = new WaveFormat(16000, 16, 1);
+            // AUTOCONVERTPCM + SRC: Windows resamples and downmixes to 16 kHz mono for us.
+            client.Initialize(AudioClientShareMode.Shared,
+                AudioClientStreamFlags.AutoConvertPcm | AudioClientStreamFlags.SrcDefaultQuality,
+                500 * 10000L, 0, fmt, Guid.Empty);
+            var cap = client.AudioCaptureClient;
+            client.Start();
+            aecRun = true;
+            var t = new Thread(() =>
+            {
+                var acc = new List<byte>();
+                try
+                {
+                    while (aecRun)
+                    {
+                        Thread.Sleep(20);
+                        int next = cap.GetNextPacketSize();
+                        while (next > 0)
+                        {
+                            var ptr = cap.GetBuffer(out int frames, out AudioClientBufferFlags flags);
+                            int bytes = frames * fmt.BlockAlign;
+                            var buf = new byte[bytes];
+                            if ((flags & AudioClientBufferFlags.Silent) == 0) Marshal.Copy(ptr, buf, 0, bytes);
+                            cap.ReleaseBuffer(frames);
+                            acc.AddRange(buf);
+                            next = cap.GetNextPacketSize();
+                        }
+                        if (acc.Count >= 1600) // 50 ms of 16 kHz 16-bit mono, like the plain path
+                        {
+                            Engine.Send(new { ev = "mic", pcm = Convert.ToBase64String(acc.ToArray()) });
+                            acc.Clear();
+                        }
+                    }
+                }
+                catch (Exception ex) { Engine.Send(new { ev = "micError", error = ex.Message }); }
+                finally
+                {
+                    try { client.Stop(); } catch { }
+                    mm.Dispose();
+                }
+            }) { IsBackground = true, Name = "mic-aec" };
+            aecThread = t;
+            t.Start();
+            Engine.Send(new { ev = "aec", on = true, device = mm.FriendlyName });
         }
     }
 

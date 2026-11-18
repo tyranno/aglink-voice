@@ -19,9 +19,10 @@
 //   {"ev":"deviceMissing","kind":"mic"|"output","name":"…"}  the chosen device is gone; the default is used
 //   {"id":9,"op":"whisper"}                         starts Whisper if the engine was started with --no-whisper
 //   {"id":4,"op":"stop","gen":7}                    stops reading 7 and older (no gen: whatever plays)
-//   {"id":5,"op":"mic","on":true,"device":""}       → {"ev":"mic","pcm":"<base64 16 kHz mono s16>"} every 50 ms;
+//   {"id":5,"op":"mic","on":true,"device":"","aec":false}       → {"ev":"mic","pcm":"<base64 16 kHz mono s16>"} every 50 ms;
 //                                                    device: an input name from "devices", blank = Windows' default
-//   {"id":6,"op":"transcribe","wav":"<base64>"}     → {"id":6,"ok":true,"text":"…"}
+//   {"id":6,"op":"transcribe","wav":"<base64>","prompt":""}  → {"id":6,"ok":true,"text":"…"}
+//                                                    prompt: an optional initial prompt to bias recognition (the wake names)
 //   {"id":7,"op":"embed","wav":"<base64>"}          → {"id":7,"ok":true,"embedding":[192 floats]}
 //   {"id":8,"op":"paste","pid":123,"title":"etc"}   → {"id":8,"ok":true} or {"ok":false,"error":"…"}
 using System;
@@ -162,7 +163,7 @@ namespace AglinkVoice
                         Send(new { id, ok = true });
                         break;
                     case "mic":
-                        Mic.Set(req["on"]?.GetValue<bool>() ?? false, req["device"]?.GetValue<string>() ?? "");
+                        Mic.Set(req["on"]?.GetValue<bool>() ?? false, req["device"]?.GetValue<string>() ?? "", req["aec"]?.GetValue<bool>() ?? false);
                         Send(new { id, ok = true });
                         break;
                     case "devices":
@@ -171,7 +172,8 @@ namespace AglinkVoice
                     case "transcribe":
                         {
                             var wav = Convert.FromBase64String(req["wav"]?.GetValue<string>() ?? "");
-                            Send(new { id, ok = true, text = Whisper.Transcribe(wav) });
+                            string prompt = req["prompt"]?.GetValue<string>() ?? "";
+                            Send(new { id, ok = true, text = Whisper.Transcribe(wav, prompt) });
                             break;
                         }
                     case "embed":

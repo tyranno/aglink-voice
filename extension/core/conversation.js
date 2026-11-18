@@ -41,6 +41,7 @@ const BARGE_MIN_LOUD_CHUNKS = 8; // ~0.4 s above the echo floor
 const BARGE_PREROLL_CHUNKS = 14;
 const MAX_CLIP_MS = 60000;
 const LEAD_MAX_CHARS = 20; // the first piece read: short, so its synthesis starts the reading soon
+const LEAD_SILENCE_MS = 500; // silence before the first piece, so a suspended output (Bluetooth) wakes without eating the opening words
 const PREROLL_MS = 600; // a soft start sits below the floor: keep what came just before it
 const ENROLL_MS = 15000;
 const ENROLL_MIN_S = 5;
@@ -163,7 +164,7 @@ class Conversation extends EventEmitter {
     if (this.on_) return;
     this.on_ = true;
     this.paused = false;
-    await this.engine.call("mic", { on: true, device: this.micDevice() });
+    await this.engine.call("mic", this.micArgs());
     if (this.s.listenMode === "wake") {
       this.log(`waiting for ${quote(T.wakeNameLabel(this.s))}`);
       this.render();
@@ -260,12 +261,18 @@ class Conversation extends EventEmitter {
     return this.s.outputDevice || "";
   }
 
+  // micArgs: the mic request. echoCancel (default on) asks the engine for a
+  // communications stream so Windows cancels the echo of our own reading.
+  micArgs() {
+    return { on: true, device: this.micDevice(), aec: this.s.echoCancel !== false };
+  }
+
   // micDeviceChanged reopens the mic on the newly picked device while voice is
   // on; when off, the next start uses it anyway.
   async micDeviceChanged() {
     if (!this.on_) return;
     try {
-      await this.engine.call("mic", { on: true, device: this.micDevice() });
+      await this.engine.call("mic", this.micArgs());
       this.log(`mic: ${this.micDevice() || "Windows default"}`);
     } catch (e) {
       this.problem = `마이크를 열 수 없어요: ${e.message}`;
@@ -288,7 +295,7 @@ class Conversation extends EventEmitter {
       if (!this.on_) return;
       try {
         await this.engine.call("mic", { on: false });
-        await this.engine.call("mic", { on: true, device: this.micDevice() });
+        await this.engine.call("mic", this.micArgs());
         this.problem = "";
       } catch (e) {
         this.problem = `마이크를 열 수 없어요: ${e.message}`;
@@ -315,7 +322,12 @@ class Conversation extends EventEmitter {
   }
 
   wakeWanted() {
-    return this.on_ && this.s.listenMode !== "manual" && !this.conv && this.phase === "idle" && !this.enrolling && !this.speaking;
+    const base = this.on_ && this.s.listenMode !== "manual" && this.phase === "idle" && !this.enrolling && !this.speaking;
+    // While a reply is awaited (wake mode), keep listening for the wake word so
+    // it can cancel a wait that is never answered — e.g. the user hit ESC in
+    // Claude Code, which fires no Stop hook, so the answer never comes.
+    if (base && this.s.listenMode === "wake" && this.awaiting) return true;
+    return base && !this.conv;
   }
 
   // ---- the user's level and the voice check ----
@@ -400,8 +412,10 @@ class Conversation extends EventEmitter {
 
   // transcribe recognises a clip turned up to a steady loudness first (quiet
   // headset mics are heard much worse); the voice check uses the clip as it is.
-  async transcribe(wav) {
-    return String((await this.engine.call("transcribe", { wav: A.loudForSpeech(wav).toString("base64") })).text || "").trim();
+  async transcribe(wav, prompt = "") {
+    const args = { wav: A.loudForSpeech(wav).toString("base64") };
+    if (prompt) args.prompt = prompt; // an initial prompt biases Whisper toward these words (used for the wake name)
+    return String((await this.engine.call("transcribe", args)).text || "").trim();
   }
 
   // speechFloor is the lowest level that counts as speech. Fixed at
@@ -916,7 +930,7 @@ class Conversation extends EventEmitter {
         this.log(`wake: other voice (${score.toFixed(2)})`);
         return;
       }
-      const text = await this.transcribe(wav);
+      const text = await this.transcribe(wav, T.wakePrompt(this.s));
       if (!text || this.wake !== w) return;
       if (this.paused) {
         if (!(await this.runPausedCommand(text))) this.log(`paused: ignored ${quote(text, 20)}`);
@@ -929,6 +943,23 @@ class Conversation extends EventEmitter {
       }
       const rest = text.slice(end).replace(T.WAKE_TAIL_RE, "").trim();
       this.log(`wake ${score >= 0 ? `${score.toFixed(2)} ` : ""}${quote(text)}`);
+      // Called again while a reply is still awaited: the user gave up on it
+      // (an interrupted Claude Code turn never answers). Drop the stale wait —
+      // a late answer is ignored because awaiting is cleared — and take this as
+      // a fresh turn, running what was said after the name right away.
+      if (this.awaiting) {
+        clearTimeout(this.awaiting);
+        this.awaiting = null;
+        this.heard = "";
+        this.log("wake while waiting → dropped the unanswered turn");
+        this.render();
+        if (rest.length >= 2) await this.transcribeClip(null, null, rest);
+        else {
+          await this.playChime();
+          this.resumeListening(0);
+        }
+        return;
+      }
       await this.wakeUp(rest);
     } catch (err) {
       this.log(`wake check failed: ${err?.message || err}`);
@@ -968,6 +999,13 @@ class Conversation extends EventEmitter {
   }
 
   stopSpeaking() {
+    // While a reading is in progress, note who cut it — the mid-reading stops
+    // are rare, so the stack tells us which path (a new answer, a barge-in, a
+    // command) interrupted it.
+    if (this.speaking) {
+      const who = (new Error().stack || "").split("\n")[2]?.trim().replace(/^at\s+/, "") || "?";
+      this.log(`stopSpeaking while reading — from ${who}`);
+    }
     const cut = this.now();
     for (const ref of this.playRefs) if (ref.endAt > cut) ref.endAt = cut;
     this.engine.call("stop", { gen: this.gen }).catch(() => {});
@@ -1001,6 +1039,7 @@ class Conversation extends EventEmitter {
   async speak(md, mode = this.speechMode(), tail = "") {
     const text = [T.speechText(md, mode), tail].filter(Boolean).join(" ");
     if (!text) return;
+    this.log(`reading text (${mode}, ${text.length} chars): "${text.length > 240 ? text.slice(0, 240) + "…" : text}"`);
     this.stopSpeaking();
     const gen = this.gen;
     // The wait before the first sound is the first piece's synthesis, which
@@ -1023,6 +1062,7 @@ class Conversation extends EventEmitter {
     const arrived = this.answerAt || Date.now();
     this.answerAt = 0;
     let synthStart = Date.now();
+    let played = 0;
     try {
       let next = this.synthesize(sentences[0]);
       for (let i = 0; i < sentences.length && gen === this.gen; i++) {
@@ -1032,11 +1072,20 @@ class Conversation extends EventEmitter {
         } catch (err) {
           this.log(`reading skipped a sentence: ${err?.message || err}`); // not the rest of the reply
         }
-        if (i === 0) this.log(`reading: first sound ${Date.now() - arrived} ms after the answer arrived (first sentence ${sentences[0].length} chars, synthesis ${Date.now() - synthStart} ms)`);
+        if (i === 0) this.log(`reading: first sound ${Date.now() - arrived} ms after the answer arrived (${sentences.length} piece(s), first ${sentences[0].length} chars, synthesis ${Date.now() - synthStart} ms)`);
         next = i + 1 < sentences.length ? this.synthesize(sentences[i + 1]) : null;
         if (next) next.catch(() => {});
-        if (wav) await this.play(wav, gen);
+        if (wav) {
+          // A silent lead on the first piece only: it wakes a suspended output
+          // (Bluetooth) so the opening words are not lost while the stream
+          // spins up. Later pieces follow close behind, the stream still awake.
+          if (played === 0) wav = A.prependSilence(wav, LEAD_SILENCE_MS);
+          await this.play(wav, gen);
+          played = i + 1;
+        }
       }
+      if (gen !== this.gen) this.log(`reading cut after piece ${played} of ${sentences.length} (something called stopSpeaking)`);
+      else this.log(`reading done: all ${sentences.length} piece(s)`);
     } catch (err) {
       this.log(`reading failed: ${err?.message || err}`);
     } finally {

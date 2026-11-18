@@ -34,3 +34,16 @@ test("the gain is capped so near-silence is not blown up into hiss", () => {
   for (let i = 0; i < 16000; i++) peak = Math.max(peak, Math.abs(out.readInt16LE(44 + i * 2) / 32768));
   assert.ok(peak <= 0.96, String(peak));
 });
+
+test("prependSilence adds a silent lead and keeps the original samples and rate", () => {
+  const clip = A.encodeWav(tone(0.3, 8000), 24000); // 8000 samples at 24 kHz
+  const out = A.prependSilence(clip, 500); // 500 ms = 12000 samples at 24 kHz
+  assert.strictEqual(out.readUInt32LE(24), 24000, "rate preserved");
+  const n = (out.length - 44) >> 1;
+  assert.strictEqual(n, 12000 + 8000, "12000 silent + 8000 original samples");
+  for (let i = 0; i < 12000; i++) assert.strictEqual(out.readInt16LE(44 + i * 2), 0, "lead is silent");
+  let voiced = 0;
+  for (let i = 12000; i < n; i++) if (out.readInt16LE(44 + i * 2) !== 0) voiced++;
+  assert.ok(voiced > 4000, "the original tone survives after the lead");
+  assert.strictEqual(A.prependSilence(clip, 0), clip, "zero ms returns the clip unchanged");
+});
