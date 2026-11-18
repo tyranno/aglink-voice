@@ -10,9 +10,10 @@ const { EventEmitter } = require("events");
 class Engine extends EventEmitter {
   // whisper: false starts the engine for reading only; ensureWhisper() adds
   // recognition later.
-  constructor(exe, root, log = () => {}, { whisper = true } = {}) {
+  constructor(exe, root, log = () => {}, { whisper = true, whisperServer = "" } = {}) {
     super();
     this.withWhisper = whisper;
+    this.whisperServer = whisperServer; // "" = recognise locally; a URL = that remote whisper server
     this.exe = exe;
     this.root = root;
     this.log = log;
@@ -36,7 +37,10 @@ class Engine extends EventEmitter {
       };
       let p;
       try {
-        p = spawn(this.exe, this.withWhisper ? [this.root] : [this.root, "--no-whisper"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+        const args = [this.root];
+        if (!this.withWhisper) args.push("--no-whisper");
+        if (this.whisperServer) args.push("--whisper-server=" + this.whisperServer);
+        p = spawn(this.exe, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       } catch (e) {
         done(e);
         return;

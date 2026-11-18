@@ -25,12 +25,43 @@ namespace AglinkVoice
 
         // Start brings the server up once; later calls do nothing. modelFor
         // names the model for the GPU (true) or the CPU build (false).
-        public static void Start(string dir, Func<bool, string> modelFor)
+        public static void Start(string dir, Func<bool, string> modelFor, string? remoteUrl = null)
         {
             if (Interlocked.Exchange(ref started, 1) == 1) return;
             State = "starting";
             Task.Run(() =>
             {
+                // A remote whisper.cpp server (same /inference protocol): don't
+                // launch a local one, just point baseUrl at it. Recognition then
+                // runs on that server's GPU, nothing local is spawned.
+                if (!string.IsNullOrWhiteSpace(remoteUrl))
+                {
+                    baseUrl = remoteUrl.TrimEnd('/');
+                    var warm = Wav.Encode(new float[16000], 16000);
+                    var deadline = DateTime.Now.AddSeconds(30);
+                    while (true)
+                    {
+                        try
+                        {
+                            Post(warm, TimeSpan.FromSeconds(15));
+                            State = "gpu";
+                            Engine.Log($"whisper-server ready (remote, {baseUrl})");
+                            Engine.Send(new { ev = "status", whisper = "gpu" });
+                            return;
+                        }
+                        catch (Exception) when (DateTime.Now < deadline)
+                        {
+                            Thread.Sleep(500);
+                        }
+                        catch (Exception e)
+                        {
+                            State = "off";
+                            Engine.Log($"remote whisper {baseUrl} failed: {e.Message}");
+                            Engine.Send(new { ev = "status", whisper = "off" });
+                            return;
+                        }
+                    }
+                }
                 bool gpu = NativeLibrary.TryLoad("nvcuda.dll", out var h);
                 if (gpu) NativeLibrary.Free(h);
                 foreach (var (sub, name) in gpu ? new[] { ("cuda", "gpu"), ("cpu", "cpu") } : new[] { ("cpu", "cpu") })

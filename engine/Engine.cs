@@ -58,6 +58,9 @@ namespace AglinkVoice
             Console.SetOut(Console.Error); // Supertonic's helper prints; answers keep stdout to themselves
             Root = args.Length > 0 && !args[0].StartsWith("--") ? args[0] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
             bool readOnly = args.Contains("--no-whisper"); // only reading answers: Whisper waits for "whisper"
+            // --whisper-server=<url>: recognise on that remote whisper.cpp server
+            // instead of launching a local one (empty = local, the default).
+            whisperServer = args.FirstOrDefault(a => a.StartsWith("--whisper-server="))?["--whisper-server=".Length..] ?? "";
 
             using var single = new Mutex(true, @"Local\aglink-voice-engine", out bool first);
             if (!first)
@@ -100,7 +103,8 @@ namespace AglinkVoice
             return 0;
         }
 
-        static void StartWhisper() => Whisper.Start(Path.Combine(Root, "whisper"), WhisperModel);
+        static string whisperServer = "";
+        static void StartWhisper() => Whisper.Start(Path.Combine(Root, "whisper"), WhisperModel, whisperServer);
 
         // WhisperModel picks the model for the build that runs it. On a GPU,
         // large-v3-turbo (8-bit) when installed: on a GTX 1060 it takes ~0.85 s

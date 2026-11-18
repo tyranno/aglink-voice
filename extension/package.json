@@ -2,7 +2,7 @@
   "name": "aglink-voice",
   "displayName": "aglink 음성 — Claude Code 음성 대화",
   "description": "Claude Code 에 말로 묻고 답을 소리로 들어요. 받아쓰기(Whisper), 읽어 주기(Supertonic 목소리 10개), 등록한 목소리만 받기, \"아글링크\" 호출어가 모두 이 PC 안에서 돌아요.",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "publisher": "aglink",
   "private": true,
   "engines": {
@@ -261,6 +261,12 @@
           ],
           "order": 11,
           "markdownDescription": "어느 음성을 쓸지예요."
+        },
+        "aglinkVoice.whisperServer": {
+          "type": "string",
+          "default": "",
+          "order": 11,
+          "markdownDescription": "음성 인식(받아쓰기)을 **어디서** 할지예요. 비워 두면 **이 PC에서 로컬**로 인식해요. `http://호스트:8178` 처럼 원격 whisper 서버 주소를 넣으면 그 **서버의 GPU**에서 인식해요 (예: `http://192.168.11.25:8178`). `음성 소스`가 이 확장의 엔진일 때(standalone, 또는 데스크톱이 꺼진 auto) 쓰여요."
         },
         "aglinkVoice.enginePath": {
           "type": "string",
