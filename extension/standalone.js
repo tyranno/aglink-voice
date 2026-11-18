@@ -279,7 +279,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   async function startCore(whisper) {
     const { exe, root } = enginePaths(cfg());
     if (!fs.existsSync(exe)) throw new Error(`음성 엔진이 설치되어 있지 않아요 (${exe}). aglink 음성 설치 파일을 먼저 실행해 주세요.`);
-    const e = new Engine(exe, root, log, { whisper, whisperServer: (cfg().get("whisperServer") || "").trim() });
+    const e = new Engine(exe, root, log, { whisper, whisperServer: (cfg().get("whisperServer") || "").trim(), micCleanup: cfg().get("micCleanup") || "off" });
     e.on("exit", (code) => {
       if (engine !== e) return;
       const wasOn = voiceOn();

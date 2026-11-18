@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { TTS_VOICES, voiceLabel, cleanWakeNames, MAX_WAKE_NAMES } = require("./core/text");
 
 const SECTION = "aglinkVoice";
-const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "micDevice", "outputDevice", "whisperServer", "enginePath", "engineRoot"];
+const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "speakerMin", "micDevice", "outputDevice", "whisperServer", "micCleanup", "enginePath", "engineRoot"];
 
 let panel = null;
 
@@ -187,6 +187,15 @@ function html(nonce) {
   <input type="text" id="whisperServer" placeholder="비워 두면 이 PC (로컬)">
   <p class="desc">받아쓰기(말 → 글)를 어디서 할지예요. 비워 두면 <b>이 PC</b>에서 인식해요. <code>http://호스트:8178</code> 처럼 서버 주소를 넣으면 그 <b>서버(GPU)</b>의 whisper 로 인식해 더 빠르고 정확할 수 있어요 (예: http://192.168.11.25:8178). 바꾼 뒤 음성을 껐다 켜면 적용돼요.</p>
 </div>
+<div class="row">
+  <label class="title" for="micCleanup">마이크 소리 정리</label>
+  <select id="micCleanup">
+    <option value="off">끄기 (그대로 보냄)</option>
+    <option value="light">기본 (고역통과 + 노이즈 억제 + 레벨 정규화)</option>
+    <option value="strong">강력 (신경망 노이즈 억제까지)</option>
+  </select>
+  <p class="desc">잔향 심한 방·원거리 마이크·주변 소음일 때, whisper로 보내기 전에 소프트웨어로 정리해요. 재생음 제거(AEC)는 하지 않아요. 바꾼 뒤 음성을 껐다 켜면 적용돼요.</p>
+</div>
 
 <h2>답 읽기</h2>
 <div class="row">
@@ -283,6 +292,7 @@ function html(nonce) {
   $("speakerMin").addEventListener("input", (e) => ($("speakerMinValue").textContent = fmt(e.target.value, 2)));
   $("speakerMin").addEventListener("change", (e) => set("speakerMin", Number(e.target.value)));
   $("wakeIdleMin").addEventListener("change", (e) => set("wakeIdleMin", Number(e.target.value)));
+  $("micCleanup").addEventListener("change", (e) => set("micCleanup", e.target.value));
   for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).addEventListener("change", (e) => set(id, e.target.checked));
   for (const name of ["listenMode"])
     for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.addEventListener("change", (e) => e.target.checked && set(name, e.target.value));
@@ -298,6 +308,7 @@ function html(nonce) {
     $("speakerMin").value = v.speakerMin;
     $("speakerMinValue").textContent = fmt(v.speakerMin, 2);
     $("wakeIdleMin").value = String(v.wakeIdleMin);
+    $("micCleanup").value = v.micCleanup || "off";
     for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge"]) $(id).checked = !!v[id];
     for (const name of ["listenMode"])
       for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.checked = r.value === v[name];

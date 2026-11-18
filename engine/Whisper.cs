@@ -21,6 +21,7 @@ namespace AglinkVoice
         static readonly HttpClient http = new() { Timeout = TimeSpan.FromMinutes(2) };
         static readonly SemaphoreSlim one = new(1, 1);
         public static volatile string State = "idle"; // idle (not asked for) | starting | gpu | cpu | off
+        public static volatile string CleanupLevel = "off"; // off | light | strong — mic pre-cleanup before whisper
         static int started;
 
         // Start brings the server up once; later calls do nothing. modelFor
@@ -151,7 +152,7 @@ namespace AglinkVoice
             one.Wait();
             try
             {
-                return Clean(Post(wav, TimeSpan.FromMinutes(2)));
+                return Clean(Post(AudioCleanup.Process(wav, CleanupLevel), TimeSpan.FromMinutes(2)));
             }
             finally
             {

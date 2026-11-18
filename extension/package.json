@@ -2,7 +2,7 @@
   "name": "aglink-voice",
   "displayName": "aglink 음성 — Claude Code 음성 대화",
   "description": "Claude Code 에 말로 묻고 답을 소리로 들어요. 받아쓰기(Whisper), 읽어 주기(Supertonic 목소리 10개), 등록한 목소리만 받기, \"아글링크\" 호출어가 모두 이 PC 안에서 돌아요.",
-  "version": "0.5.18",
+  "version": "0.5.19",
   "publisher": "aglink",
   "private": true,
   "engines": {
@@ -250,7 +250,23 @@
           "type": "string",
           "default": "",
           "order": 11,
-          "markdownDescription": "음성 인식(받아쓰기)을 **어디서** 할지예요. 비워 두면 **이 PC에서 로컬**로 인식해요. `http://호스트:8178` 처럼 원격 whisper 서버 주소를 넣으면 그 **서버의 GPU**에서 인식해요 (예: `http://192.168.11.25:8178`). `음성 소스`가 이 확장의 엔진일 때(standalone, 또는 데스크톱이 꺼진 auto) 쓰여요."
+          "markdownDescription": "음성 인식(받아쓰기)을 **어디서** 할지예요. 비워 두면 **이 PC에서 로컬**로 인식해요. `http://호스트:8178` 처럼 원격 whisper 서버 주소를 넣으면 그 **서버의 GPU**에서 인식해요 (예: `http://192.168.11.25:8178`)."
+        },
+        "aglinkVoice.micCleanup": {
+          "type": "string",
+          "default": "off",
+          "enum": [
+            "off",
+            "light",
+            "strong"
+          ],
+          "enumDescriptions": [
+            "끄기: 마이크 소리를 그대로 whisper로 보냄.",
+            "기본: 이 PC에서 고역통과(저주파 제거) + 노이즈 억제 + 레벨 정규화. 잔향·주변소음 완화.",
+            "강력: 신경망 노이즈 억제(RNNoise) + 위 처리. 소음이 심할 때. (엔진에 모듈 없으면 '기본'으로 동작)"
+          ],
+          "order": 12,
+          "markdownDescription": "whisper로 보내기 전에 마이크 소리를 **소프트웨어로 정리**해요(잔향 심한 방·원거리 마이크·주변 소음용). `off`=그대로, `light`=이 PC에서 정리, `strong`=신경망 노이즈 억제까지. 바꾼 뒤 음성을 껐다 켜면 적용돼요. (AEC(재생음 제거)는 하지 않아요.)"
         },
         "aglinkVoice.enginePath": {
           "type": "string",

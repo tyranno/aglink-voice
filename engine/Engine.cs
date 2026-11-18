@@ -61,6 +61,8 @@ namespace AglinkVoice
             // --whisper-server=<url>: recognise on that remote whisper.cpp server
             // instead of launching a local one (empty = local, the default).
             whisperServer = args.FirstOrDefault(a => a.StartsWith("--whisper-server="))?["--whisper-server=".Length..] ?? "";
+            // --mic-cleanup=off|light|strong: tidy the clip before whisper.
+            Whisper.CleanupLevel = args.FirstOrDefault(a => a.StartsWith("--mic-cleanup="))?["--mic-cleanup=".Length..] ?? "off";
 
             using var single = new Mutex(true, @"Local\aglink-voice-engine", out bool first);
             if (!first)
