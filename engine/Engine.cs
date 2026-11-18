@@ -19,7 +19,7 @@
 //   {"ev":"deviceMissing","kind":"mic"|"output","name":"…"}  the chosen device is gone; the default is used
 //   {"id":9,"op":"whisper"}                         starts Whisper if the engine was started with --no-whisper
 //   {"id":4,"op":"stop","gen":7}                    stops reading 7 and older (no gen: whatever plays)
-//   {"id":5,"op":"mic","on":true,"device":"","aec":false}       → {"ev":"mic","pcm":"<base64 16 kHz mono s16>"} every 50 ms;
+//   {"id":5,"op":"mic","on":true,"device":"","aec":false}       → {"ev":"mic","pcm":"<base64 16 kHz mono s16>","vad":<0..1 speech prob>} every 50 ms;
 //                                                    device: an input name from "devices", blank = Windows' default
 //   {"id":6,"op":"transcribe","wav":"<base64>","prompt":""}  → {"id":6,"ok":true,"text":"…"}
 //                                                    prompt: an optional initial prompt to bias recognition (the wake names)

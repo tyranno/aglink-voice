@@ -314,6 +314,7 @@ namespace AglinkVoice
                 if (!on && !running) return;
                 Stop();
                 if (!on) return;
+                Vad.Reset(); // a fresh mic stream begins from silence
                 devName = device;
                 devAec = aec;
                 if (aec)
@@ -336,7 +337,7 @@ namespace AglinkVoice
             var d = new WaveInEvent { DeviceNumber = number ?? -1, WaveFormat = new WaveFormat(16000, 16, 1), BufferMilliseconds = 50, NumberOfBuffers = 4 };
             d.DataAvailable += (_, e) =>
             {
-                if (e.BytesRecorded > 0) Engine.Send(new { ev = "mic", pcm = Convert.ToBase64String(e.Buffer, 0, e.BytesRecorded) });
+                if (e.BytesRecorded > 0) Engine.Send(new { ev = "mic", pcm = Convert.ToBase64String(e.Buffer, 0, e.BytesRecorded), vad = Vad.Prob(e.Buffer, 0, e.BytesRecorded) });
             };
             d.RecordingStopped += (_, e) =>
             {
@@ -422,7 +423,8 @@ namespace AglinkVoice
                         }
                         if (acc.Count >= 1600) // 50 ms of 16 kHz 16-bit mono, like the plain path
                         {
-                            Engine.Send(new { ev = "mic", pcm = Convert.ToBase64String(acc.ToArray()) });
+                            var pcm = acc.ToArray();
+                            Engine.Send(new { ev = "mic", pcm = Convert.ToBase64String(pcm), vad = Vad.Prob(pcm, 0, pcm.Length) });
                             acc.Clear();
                         }
                     }

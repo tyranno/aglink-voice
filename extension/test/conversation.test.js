@@ -62,11 +62,13 @@ function setup({ settings: over = {}, store: init = {} } = {}) {
     },
     now: () => clock,
   });
-  // feed sends ms of mic audio, 50 ms at a time, letting the checks it starts run.
-  async function feed(amp, ms) {
+  // feed sends ms of mic audio, 50 ms at a time, letting the checks it starts
+  // run. vad is the Silero speech probability the engine would attach to each
+  // piece (0 by default, as if the model found no speech).
+  async function feed(amp, ms, vad = 0) {
     for (let t = 0; t < ms; t += 50) {
       clock += 50;
-      engine.emit("mic", { pcm: frame(amp) });
+      engine.emit("mic", { pcm: frame(amp), vad });
       await tick();
     }
   }
@@ -340,6 +342,43 @@ test("the button says speech is coming in from the first loud sound until the cl
   assert.strictEqual(conv.state().hearing, false);
   assert.ok(seen.some((st) => st.hearing), "the change is sent to the button");
   conv.stop();
+});
+
+test("a soft voice under the energy gate is still caught by VAD and sent", async () => {
+  const { conv, engine, sent, feed, until } = setup({ settings: { listenMode: "always" } });
+  engine.text = "조용히 말했어요.";
+  await conv.start();
+  await until(() => conv.phase === "listening", "the mic");
+  await feed(0.001, 500, 0); // the quiet room: below the energy threshold, no speech
+  assert.strictEqual(conv.state().hearing, false, "nothing heard yet");
+  await feed(0.001, 900, 0.9); // just as quiet, but VAD says it is speech
+  assert.strictEqual(conv.state().hearing, true, "VAD marks the soft voice as speech");
+  await feed(0.001, 2400, 0); // VAD falls silent: the end-of-speech wait ends the clip
+  await until(() => sent.length === 1, "the request");
+  assert.deepStrictEqual(sent, ["조용히 말했어요."]);
+  conv.stop();
+});
+
+test("recFrame uses VAD while listening but ignores it during a barge recording", () => {
+  const { conv } = setup({ settings: { listenMode: "always", barge: true } });
+  const now = conv.now();
+  const mk = (barge) => ({
+    chunks: [], first: -1, loud: 0, speechSum: 0, lastSpeechAt: 0, firstSpeechAt: 0,
+    noise: 0, noiseN: 0, startedAt: now - 2000, learnedUntil: now - 1000, barge,
+    prefix: "", earlyFor: 0, checks: Promise.resolve(), stopped: false,
+  });
+  const quiet = new Float32Array(800); // below the energy gate
+  const lvl = 0.0007;
+
+  const listening = mk(false);
+  conv.speaking = false;
+  conv.recFrame(listening, quiet, lvl, now, 0.9);
+  assert.strictEqual(listening.first, 0, "while listening, a soft but voiced piece counts as speech");
+
+  const barge = mk(true);
+  conv.speaking = true; // the reply is being read; the quiet signal is its echo
+  conv.recFrame(barge, quiet, lvl, now, 0.9);
+  assert.strictEqual(barge.first, -1, "during a barge recording VAD is ignored, so the echo is not speech");
 });
 
 test("the user talking over the TV is found in a window of the clip, and only their part is sent", async () => {

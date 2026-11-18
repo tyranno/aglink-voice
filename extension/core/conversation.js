@@ -30,6 +30,7 @@ const ECHO_TAIL_MS = 1000; // speech starting this soon after the reading may be
 const CONV_NO_SPEECH_MS = 20000; // the mic is re-opened after this much silence
 const CONV_RETRY_MS = 5000;
 const NOISE_LEARN_MS = 400;
+const VAD_SPEECH = 0.5; // Silero speech probability (0..1) at or above which a mic piece counts as speech
 const MIN_THRESHOLD = 0.012;
 const MIN_FLOOR = 0.005; // the speech floor never goes under this, however quiet the user
 const FLOOR_OF_USER_LEVEL = 0.3; // the floor as a share of the user's speaking level
@@ -142,7 +143,7 @@ class Conversation extends EventEmitter {
     this.echoGain = store.get("echoGain") || null;
     this.userLevel = store.get("userLevel") || { level: 0, n: 0 };
 
-    engine.on("mic", (m) => this.onFrame(A.pcmToFloat(m.pcm)));
+    engine.on("mic", (m) => this.onFrame(A.pcmToFloat(m.pcm), m.vad || 0));
     engine.on("micError", (m) => this.onMicError(m.error));
     engine.on("deviceMissing", (m) => this.onDeviceMissing(m));
     engine.on("status", () => this.render());
@@ -304,7 +305,7 @@ class Conversation extends EventEmitter {
     }, CONV_RETRY_MS);
   }
 
-  onFrame(x) {
+  onFrame(x, vad = 0) {
     if (!this.on_) return;
     const level = A.rms(x);
     this.level = Math.min(1, level * 12);
@@ -314,7 +315,7 @@ class Conversation extends EventEmitter {
       return;
     }
     if (this.rec) {
-      this.recFrame(this.rec, x, level, now);
+      this.recFrame(this.rec, x, level, now, vad);
       return;
     }
     if (this.wakeWanted()) this.wakeFrame(x, level, now);
@@ -510,7 +511,7 @@ class Conversation extends EventEmitter {
     rec.speechSum = 0;
   }
 
-  recFrame(rec, x, level, now) {
+  recFrame(rec, x, level, now, vad = 0) {
     rec.chunks.push(x);
     if (now < rec.learnedUntil) {
       rec.noise = (rec.noise * rec.noiseN + level) / (rec.noiseN + 1);
@@ -535,7 +536,15 @@ class Conversation extends EventEmitter {
     if (ref > 0.01) this.noteEchoRatio(level / ref);
     const echoFloor = this.echoGain !== null ? this.echoGain * ref * ECHO_MARGIN : 0;
     const threshold = Math.max(this.speechFloor(), rec.noise * 3, echoFloor);
-    if (level > threshold) {
+    const energy = level > threshold;
+    // Silero VAD catches speech the energy gate misses — a soft-spoken or
+    // trailing word, or a quiet mic — so onset and the end-of-speech timer
+    // follow the voice, not loudness alone. Not during a barge recording: there
+    // our own reading plays through the speakers, and VAD cannot tell it from
+    // the user, so the echo-floor logic (loudness) must stay in charge. Loudness
+    // still drives the speaker-level average below (loud/speechSum).
+    const speech = energy || (!rec.barge && vad >= VAD_SPEECH);
+    if (speech) {
       if (rec.first < 0) {
         rec.first = rec.chunks.length - 1;
         rec.firstSpeechAt = now;
@@ -545,6 +554,8 @@ class Conversation extends EventEmitter {
         }
       }
       rec.lastSpeechAt = now;
+    }
+    if (energy) {
       rec.loud++;
       rec.speechSum += level;
     }

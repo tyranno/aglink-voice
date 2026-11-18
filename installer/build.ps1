@@ -9,7 +9,7 @@
 
   The models and whisper.cpp builds are not in git. -Root points at a folder
   laid out the way the engine reads it (links are followed):
-    models\ggml-small.bin, models\ecapa.onnx,
+    models\ggml-small.bin, models\ecapa.onnx, models\silero_vad.onnx,
     models\supertonic\{onnx,voice_styles,LICENSE},
     whisper\cpu\whisper-server.exe + DLLs, whisper\cuda\... (the same, CUDA)
 
@@ -79,7 +79,7 @@ if ($LASTEXITCODE) { throw 'extension package failed' }
 Copy-Item (Join-Path $repo "extension\aglink-voice-$version.vsix") (Join-Path $base 'aglink-voice.vsix')
 
 Write-Host 'models'
-Copy-Files (Join-Path $Root 'models') (Join-Path $base 'models') @('ggml-small.bin', 'ecapa.onnx')
+Copy-Files (Join-Path $Root 'models') (Join-Path $base 'models') @('ggml-small.bin', 'ecapa.onnx', 'silero_vad.onnx')
 Copy-Tree (Join-Path $Root 'models\supertonic\onnx') (Join-Path $base 'models\supertonic\onnx')
 Copy-Tree (Join-Path $Root 'models\supertonic\voice_styles') (Join-Path $base 'models\supertonic\voice_styles')
 Copy-Item (Join-Path $repo 'engine\LICENSE-Supertonic') (Join-Path $base 'models\supertonic\LICENSE')
