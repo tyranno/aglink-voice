@@ -215,7 +215,12 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     const bindHost = tok ? "0.0.0.0" : "127.0.0.1";
     return new Promise((resolve, reject) => {
       const srv = http.createServer((req, res) => {
-        if (tok) {
+        // Loopback is already on this machine (our own Stop hook), so it passes
+        // without a token even when one is set — only network peers must auth.
+        // This keeps the local hook working regardless of AGLINK_VOICE_TOKEN.
+        const ra = (req.socket && req.socket.remoteAddress) || "";
+        const isLoopback = ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1";
+        if (tok && !isLoopback) {
           const got = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "").trim();
           if (got !== tok) {
             res.writeHead(401).end('{"error":"aglink-voice: token required"}');
