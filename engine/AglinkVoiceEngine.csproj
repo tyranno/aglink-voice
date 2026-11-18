@@ -27,4 +27,11 @@
     <PackageReference Include="SoundTouch.Net" Version="2.3.2" />
   </ItemGroup>
 
+  <!-- RNNoise native lib for "strong" mic cleanup (build with tools/build-rnnoise.sh). -->
+  <ItemGroup>
+    <Content Include="native\rnnoise.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

@@ -71,6 +71,7 @@ Write-Host 'engine'
 if ($LASTEXITCODE) { throw 'dotnet publish failed' }
 Get-ChildItem (Join-Path $base 'engine') -Filter *.pdb | Remove-Item
 Copy-Files "$env:WINDIR\System32" (Join-Path $base 'engine') $vcRuntime
+Copy-Item (Join-Path $repo 'engine\native\rnnoise.dll') (Join-Path $base 'engine') -Force # RNNoise for 'strong' mic cleanup
 
 Write-Host 'extension'
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'extension\install.ps1') -PackageOnly | Out-Null

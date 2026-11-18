@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using NAudio.Dsp; // BiQuadFilter
 
 // AudioCleanup tidies a recorded clip before it goes to whisper: a high-pass to
@@ -20,9 +21,13 @@ static class AudioCleanup
         {
             float[] x = Wav.Decode16k(wav);
             if (x.Length < 1024) return wav; // too short to help; leave it
+            // "strong": RNNoise neural suppression (needs rnnoise.dll next to the
+            // engine). If it is missing or fails, fall through to the light chain.
+            if (level == "strong" && RnnoiseStrong(x)) { Engine.Log("mic-cleanup: rnnoise"); return Wav.Encode(x, 16000); }
             HighPass(x, 16000, 90f);
             SpectralSubtract(x);
             Agc(x);
+            Engine.Log("mic-cleanup: light" + (level == "strong" ? " (rnnoise unavailable)" : ""));
             return Wav.Encode(x, 16000);
         }
         catch
@@ -109,6 +114,74 @@ static class AudioCleanup
         {
             double v = x[i] * gain;
             x[i] = (float)(v > 0.98 ? 0.98 : v < -0.98 ? -0.98 : v);
+        }
+    }
+
+    // ---- RNNoise (neural noise suppression, "strong") -----------------------
+    [DllImport("rnnoise", CallingConvention = CallingConvention.Cdecl)]
+    static extern IntPtr rnnoise_create(IntPtr model);
+    [DllImport("rnnoise", CallingConvention = CallingConvention.Cdecl)]
+    static extern void rnnoise_destroy(IntPtr st);
+    [DllImport("rnnoise", CallingConvention = CallingConvention.Cdecl)]
+    static extern float rnnoise_process_frame(IntPtr st, float[] outp, float[] inp);
+
+    // RnnoiseStrong denoises 16 kHz x in place with RNNoise at its native 48 kHz
+    // (x3 up/down). Returns false — caller then uses the light chain — when
+    // rnnoise.dll is missing or anything fails. Never throws out.
+    static bool RnnoiseStrong(float[] x)
+    {
+        IntPtr st;
+        try { st = rnnoise_create(IntPtr.Zero); }
+        catch { return false; }
+        if (st == IntPtr.Zero) return false;
+        try
+        {
+            HighPass(x, 16000, 90f);
+            const int F = 480; // RNNoise frame @ 48 kHz
+            float[] up = Upsample3(x);
+            for (int i = 0; i < up.Length; i++) up[i] *= 32768f; // int16-range floats
+            var inb = new float[F];
+            var outb = new float[F];
+            for (int off = 0; off < up.Length; off += F)
+            {
+                int len = Math.Min(F, up.Length - off);
+                if (len < F) Array.Clear(inb, 0, F);
+                Array.Copy(up, off, inb, 0, len);
+                rnnoise_process_frame(st, outb, inb);
+                Array.Copy(outb, 0, up, off, len);
+            }
+            for (int i = 0; i < up.Length; i++) up[i] /= 32768f;
+            Downsample3(up, x);
+            Agc(x);
+            return true;
+        }
+        catch { return false; }
+        finally { rnnoise_destroy(st); }
+    }
+
+    static float[] Upsample3(float[] x)
+    {
+        var y = new float[x.Length * 3];
+        for (int i = 0; i < x.Length; i++)
+        {
+            float a = x[i];
+            float b = i + 1 < x.Length ? x[i + 1] : a;
+            y[i * 3] = a;
+            y[i * 3 + 1] = a + (b - a) / 3f;
+            y[i * 3 + 2] = a + 2f * (b - a) / 3f;
+        }
+        return y;
+    }
+
+    static void Downsample3(float[] up, float[] dst)
+    {
+        for (int i = 0; i < dst.Length; i++)
+        {
+            int j = i * 3;
+            float s = up[j];
+            if (j + 1 < up.Length) s += up[j + 1];
+            if (j + 2 < up.Length) s += up[j + 2];
+            dst[i] = s / 3f;
         }
     }
 
