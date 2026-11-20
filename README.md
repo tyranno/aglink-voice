@@ -27,8 +27,21 @@ node extension/tools/live-check.js <engine.exe> <root> <enroll.wav> <user.wav> [
 powershell -NoProfile -ExecutionPolicy Bypass -File extension\install.ps1
 ```
 
-The engine's root folder holds `models\` (`ggml-small.bin`, `ecapa.onnx`,
-`supertonic\`) and `whisper\` (`cuda\`, `cpu\`). They are not in git.
+The engine's root folder holds `models\` and `whisper\`; they are not in
+git. What each setup file takes from it (`-Root`, default
+`%USERPROFILE%\.aglink\voice-build\root`):
+
+| Setup | From the root | From the repo / Windows |
+|---|---|---|
+| CPU base (`aglink-voice-setup`) | `models\ggml-small.bin` (Whisper), `models\ecapa.onnx` (voice check), `models\silero_vad.onnx` (voice activity), `models\supertonic\onnx\`, `models\supertonic\voice_styles\`; `whisper\cpu\whisper-server.exe`, `whisper.dll`, `ggml.dll`, `ggml-base.dll`, `ggml-cpu-*.dll` | the published engine, `engine\native\rnnoise.dll`, `engine\LICENSE-Supertonic`, the extension's `.vsix`; the VC++ runtime DLLs next to the engine and `whisper\cpu\` |
+| GPU add-on (`aglink-voice-gpu`) | `whisper\cuda\` with the same whisper files plus `ggml-cuda.dll`, `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` | the VC++ runtime DLLs next to them |
+
+The VC++ runtime DLLs are `msvcp140.dll`, `msvcp140_1.dll`, `msvcp140_2.dll`,
+`vcruntime140.dll`, `vcruntime140_1.dll`, `vcomp140.dll` from `System32`.
+`build.ps1` checks for all of these before it builds anything and lists what
+is missing. The engine also uses `models\ggml-small-q8_0.bin` (CPU) or
+`models\ggml-large-v3-turbo-q8_0.bin` (GPU) when they are there, but no setup
+ships them.
 
 ## Setup files
 

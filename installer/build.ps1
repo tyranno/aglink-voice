@@ -63,6 +63,29 @@ function Copy-Tree([string] $from, [string] $to, [string[]] $exclude = @()) {
 
 $vcRuntime = @('msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'vcomp140.dll')
 $whisperFiles = @('whisper-server.exe', 'whisper.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu-*.dll')
+$modelFiles = @('ggml-small.bin', 'ecapa.onnx', 'silero_vad.onnx')
+$cudaFiles = $whisperFiles + @('ggml-cuda.dll', 'cublas64_12.dll', 'cublasLt64_12.dll', 'cudart64_12.dll')
+
+# Everything the staging below copies is checked first, so a missing model or
+# DLL stops the build here with the whole list rather than after the publish.
+$missing = @()
+function Need([string] $dir, [string[]] $names) {
+    foreach ($n in $names) {
+        if (-not (Test-Path $dir) -or -not (Get-ChildItem -Path $dir -Filter $n -File -ErrorAction SilentlyContinue)) { $script:missing += "$dir\$n" }
+    }
+}
+function NeedTree([string] $dir) {
+    if (-not (Test-Path $dir) -or -not (Get-ChildItem -Path $dir -Recurse -File -ErrorAction SilentlyContinue)) { $script:missing += "$dir\ (empty or missing)" }
+}
+Need (Join-Path $Root 'models') $modelFiles
+NeedTree (Join-Path $Root 'models\supertonic\onnx')
+NeedTree (Join-Path $Root 'models\supertonic\voice_styles')
+Need (Join-Path $Root 'whisper\cpu') $whisperFiles
+Need (Join-Path $Root 'whisper\cuda') $cudaFiles
+Need (Join-Path $repo 'engine') @('LICENSE-Supertonic')
+Need (Join-Path $repo 'engine\native') @('rnnoise.dll')
+Need "$env:WINDIR\System32" $vcRuntime
+if ($missing) { throw ("missing files (-Root $Root):`n  " + ($missing -join "`n  ")) }
 
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 
@@ -79,7 +102,7 @@ if ($LASTEXITCODE) { throw 'extension package failed' }
 Copy-Item (Join-Path $repo "extension\aglink-voice-$version.vsix") (Join-Path $base 'aglink-voice.vsix')
 
 Write-Host 'models'
-Copy-Files (Join-Path $Root 'models') (Join-Path $base 'models') @('ggml-small.bin', 'ecapa.onnx', 'silero_vad.onnx')
+Copy-Files (Join-Path $Root 'models') (Join-Path $base 'models') $modelFiles
 Copy-Tree (Join-Path $Root 'models\supertonic\onnx') (Join-Path $base 'models\supertonic\onnx')
 Copy-Tree (Join-Path $Root 'models\supertonic\voice_styles') (Join-Path $base 'models\supertonic\voice_styles')
 Copy-Item (Join-Path $repo 'engine\LICENSE-Supertonic') (Join-Path $base 'models\supertonic\LICENSE')
@@ -87,7 +110,7 @@ Copy-Item (Join-Path $repo 'engine\LICENSE-Supertonic') (Join-Path $base 'models
 Write-Host 'whisper'
 Copy-Files (Join-Path $Root 'whisper\cpu') (Join-Path $base 'whisper\cpu') $whisperFiles
 Copy-Files "$env:WINDIR\System32" (Join-Path $base 'whisper\cpu') $vcRuntime
-Copy-Files (Join-Path $Root 'whisper\cuda') (Join-Path $gpu 'whisper\cuda') ($whisperFiles + @('ggml-cuda.dll', 'cublas64_12.dll', 'cublasLt64_12.dll', 'cudart64_12.dll'))
+Copy-Files (Join-Path $Root 'whisper\cuda') (Join-Path $gpu 'whisper\cuda') $cudaFiles
 Copy-Files "$env:WINDIR\System32" (Join-Path $gpu 'whisper\cuda') $vcRuntime
 
 foreach ($d in $base, $gpu) {
