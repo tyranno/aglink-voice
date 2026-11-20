@@ -538,3 +538,25 @@ test("only one early try runs at a time, and one that hears no words drops the n
   await until(() => conv.rec && conv.rec.first < 0, "the noise dropped");
   conv.stop();
 });
+
+test("대기 그만 drops an answer that never comes: voice stays on, the mic opens, a late answer is ignored", async () => {
+  const { conv, engine, sent, feed, until } = setup();
+  await conv.start();
+  engine.text = "아글링크야, 빌드 돌려 줘.";
+  await feed(0.001, 500);
+  await feed(0.2, 800);
+  await feed(0.001, 700);
+  await until(() => sent.length === 1, "the request");
+  assert.ok(conv.awaiting, "waits for the answer");
+
+  assert.strictEqual(conv.stopWaiting(), true);
+  assert.strictEqual(conv.awaiting, null);
+  assert.ok(conv.on_ && conv.conv, "voice and the conversation stay on");
+  await until(() => conv.phase === "listening", "the mic for the next words");
+
+  const reads = engine.ops("tts").length;
+  assert.strictEqual(conv.onReply("늦게 온 답이에요."), false, "a late answer is not read");
+  assert.strictEqual(engine.ops("tts").length, reads);
+  assert.strictEqual(conv.stopWaiting(), false, "nothing to drop twice");
+  conv.stop();
+});

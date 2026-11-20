@@ -435,6 +435,9 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     skipReading() {
       if (conv) conv.skipReading();
     },
+    stopWaiting() {
+      if (conv) conv.stopWaiting();
+    },
     // enroll records the user's voice (turning voice on for it if need be).
     async enroll() {
       if (!(await ensureOn())) return;

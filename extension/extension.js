@@ -64,6 +64,15 @@ function activate(context) {
   skipItem.color = accent;
   skipItem.tooltip = "답변 읽기를 여기서 멈추고 바로 다음 말을 들어요 (Ctrl+Alt+Enter)";
   skipItem.command = "aglinkVoice.skipReading";
+  // Shown only while an answer is awaited: one that never comes (no Stop hook,
+  // an interrupted turn) would hold the mic shut, so the wait can be dropped
+  // without switching voice off and on.
+  const waitItem = vscode.window.createStatusBarItem("aglinkVoice.unwait", vscode.StatusBarAlignment.Left, 99999.8);
+  waitItem.name = "aglink 음성 대기 그만";
+  waitItem.text = "$(debug-stop) 대기 그만";
+  waitItem.color = accent;
+  waitItem.tooltip = "답을 그만 기다리고 바로 다음 말을 들어요. 음성은 켜 둔 채예요 (Ctrl+Alt+Enter)";
+  waitItem.command = "aglinkVoice.stopWaiting";
   let shownPhase = null; // the voice's phase as last drawn, for Ctrl+Alt+Enter
   const showSend = (phase) => {
     shownPhase = phase;
@@ -71,6 +80,8 @@ function activate(context) {
     else sendItem.hide();
     if (phase === "speaking") skipItem.show();
     else skipItem.hide();
+    if (phase === "waiting") waitItem.show();
+    else waitItem.hide();
   };
 
   const desktop = null; // VS Code voice never links to the desktop app
@@ -85,8 +96,10 @@ function activate(context) {
 
   const sendNow = () => (mode() === "desktop" ? desktop.sendNow() : standalone.sendNow());
   const skipReading = () => (mode() === "desktop" ? desktop.skipReading() : standalone.skipReading());
-  // Ctrl+Alt+Enter moves the conversation on: a reading is cut short, a listening is sent.
-  const next = () => (shownPhase === "speaking" ? skipReading() : sendNow());
+  const stopWaiting = () => standalone.stopWaiting();
+  // Ctrl+Alt+Enter moves the conversation on: a reading is cut short, a wait
+  // is dropped, a listening is sent.
+  const next = () => (shownPhase === "speaking" ? skipReading() : shownPhase === "waiting" ? stopWaiting() : sendNow());
   const toggle = () => (mode() === "desktop" ? desktop.toggle() : standalone.toggle());
   // The mic button: on/off, or stop a reading that is playing with voice off.
   const primary = () => (mode() === "standalone" && standalone.speaking && !standalone.on ? standalone.stopReading() : toggle());
@@ -164,6 +177,7 @@ function activate(context) {
     const on = mode() === "desktop" ? desktop.on : standalone.on;
     const items = [{ label: on ? "$(mic-filled) 음성 대화 끄기" : "$(mic) 음성 대화 켜기", description: "Ctrl+Alt+V", run: toggle }];
     if (standalone.speaking) items.push({ label: "$(debug-stop) 읽기 멈추기", run: () => standalone.stopReading() });
+    if (shownPhase === "waiting") items.push({ label: "$(debug-stop) 답 그만 기다리기", description: "음성은 켜 둔 채 바로 다음 말을 들어요", run: stopWaiting });
     if (mode() === "desktop") {
       items.push({ label: "$(info) 데스크톱 앱의 음성을 쓰는 중", description: "설정은 데스크톱 앱에서 바꿔요", run: () => {} });
     } else {
@@ -194,10 +208,12 @@ function activate(context) {
     micItem,
     menuItem,
     sendItem,
+    waitItem,
     skipItem,
     vscode.commands.registerCommand("aglinkVoice.toggle", toggle),
     vscode.commands.registerCommand("aglinkVoice.sendNow", sendNow),
     vscode.commands.registerCommand("aglinkVoice.skipReading", skipReading),
+    vscode.commands.registerCommand("aglinkVoice.stopWaiting", stopWaiting),
     vscode.commands.registerCommand("aglinkVoice.next", next),
     vscode.commands.registerCommand("aglinkVoice.primary", primary),
     vscode.commands.registerCommand("aglinkVoice.menu", menu),

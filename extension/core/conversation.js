@@ -707,6 +707,23 @@ class Conversation extends EventEmitter {
     if (this.conv && !this.rec && !this.enrolling) this.resumeListening(0);
   }
 
+  // stopWaiting is the "대기 그만" click: an answer that never comes (the Stop
+  // hook did not run, the turn was interrupted, a different folder answered)
+  // would otherwise hold the mic shut for ANSWER_WAIT_MS. The wait is dropped
+  // with voice left on, and in a conversation the mic opens for the next words.
+  // A late answer is then ignored, as after calling the wake word mid-wait.
+  stopWaiting() {
+    if (!this.awaiting) return false;
+    clearTimeout(this.awaiting);
+    this.awaiting = null;
+    this.heard = "";
+    this.textOnce = false;
+    this.log("waiting dropped (clicked)");
+    this.render();
+    if (this.conv && !this.rec && !this.enrolling) this.resumeListening(0);
+    return true;
+  }
+
   stopRecording(transcribe, heard = null) {
     const rec = this.rec;
     if (!rec) return;
