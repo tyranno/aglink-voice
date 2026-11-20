@@ -120,4 +120,22 @@ function ownsTurn(cwd, folders) {
   });
 }
 
-module.exports = { STANDALONE_PORT, DESKTOP_PORT, HOOK_MARK, HOOK_SCRIPT, HOOK_SCRIPT_PS, ensureStopHook, hookDir, ownsTurn };
+// hookAllowed decides whether a request to the Stop-hook listener may pass.
+// Our hooks (Node and PowerShell) send JSON with no Origin header, so anything
+// with an Origin or another content type is a browser page and is refused —
+// a page could otherwise POST a fake answer to be read aloud. Loopback skips
+// the token only when Host names loopback too, so a DNS-rebound page cannot
+// pass as our own hook; every other peer needs the token when one is set.
+function hookAllowed({ remoteAddress = "", headers = {} }, tok) {
+  if (headers.origin) return false;
+  if (!/^application\/json\b/i.test(headers["content-type"] || "")) return false;
+  const loopAddr = remoteAddress === "127.0.0.1" || remoteAddress === "::1" || remoteAddress === "::ffff:127.0.0.1";
+  const hostName = String(headers.host || "").replace(/:\d+$/, "").replace(/^\[|\]$/g, "").toLowerCase();
+  const loopHost = hostName === "127.0.0.1" || hostName === "localhost" || hostName === "::1";
+  if (loopAddr && loopHost) return true;
+  if (!tok) return false;
+  const got = String(headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  return got === tok;
+}
+
+module.exports = { STANDALONE_PORT, DESKTOP_PORT, HOOK_MARK, HOOK_SCRIPT, HOOK_SCRIPT_PS, ensureStopHook, hookDir, ownsTurn, hookAllowed };

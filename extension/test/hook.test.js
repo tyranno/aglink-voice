@@ -6,7 +6,7 @@ const http = require("http");
 const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
-const { ensureStopHook, HOOK_SCRIPT, HOOK_SCRIPT_PS, STANDALONE_PORT, ownsTurn } = require("../hook");
+const { ensureStopHook, HOOK_SCRIPT, HOOK_SCRIPT_PS, STANDALONE_PORT, ownsTurn, hookAllowed } = require("../hook");
 
 function tempHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "aglink-voice-"));
@@ -123,4 +123,24 @@ test("ownsTurn reads only this window's folder", () => {
   assert.ok(!ownsTurn("/home/me/proj2", ["/home/me/proj"]));
   assert.ok(ownsTurn("", ["/home/me/proj"]));
   assert.ok(ownsTurn("/anywhere", []));
+});
+
+test("hookAllowed: our loopback hook passes, browser pages and strangers do not", () => {
+  const json = { "content-type": "application/json", host: "127.0.0.1:48231" };
+  const lo = (headers) => ({ remoteAddress: "127.0.0.1", headers });
+  const net = (headers) => ({ remoteAddress: "192.168.0.9", headers });
+  // our own Stop hook, with or without a token set
+  assert.equal(hookAllowed(lo(json), ""), true);
+  assert.equal(hookAllowed(lo(json), "s3cret"), true);
+  assert.equal(hookAllowed(lo({ ...json, host: "localhost:48231" }), "s3cret"), true);
+  // a web page: has Origin, or a simple text/plain POST, or a DNS-rebound Host
+  assert.equal(hookAllowed(lo({ ...json, origin: "https://evil.example" }), ""), false);
+  assert.equal(hookAllowed(lo({ ...json, "content-type": "text/plain" }), ""), false);
+  assert.equal(hookAllowed(lo({ ...json, host: "evil.example:48231" }), "s3cret"), false);
+  // a remote hook (Remote-SSH) needs the token
+  const remote = { "content-type": "application/json", host: "192.168.0.2:48231" };
+  assert.equal(hookAllowed(net(remote), "s3cret"), false);
+  assert.equal(hookAllowed(net({ ...remote, authorization: "Bearer s3cret" }), "s3cret"), true);
+  assert.equal(hookAllowed(net({ ...remote, authorization: "Bearer nope" }), "s3cret"), false);
+  assert.equal(hookAllowed(net(remote), ""), false);
 });

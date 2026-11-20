@@ -22,7 +22,7 @@ const path = require("path");
 const { Engine } = require("./core/engine");
 const { Conversation } = require("./core/conversation");
 const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
-const { STANDALONE_PORT, ensureStopHook, ownsTurn } = require("./hook");
+const { STANDALONE_PORT, ensureStopHook, ownsTurn, hookAllowed } = require("./hook");
 const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
 
 const SECTION = "aglinkVoice";
@@ -215,17 +215,12 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     const bindHost = tok ? "0.0.0.0" : "127.0.0.1";
     return new Promise((resolve, reject) => {
       const srv = http.createServer((req, res) => {
-        // Loopback is already on this machine (our own Stop hook), so it passes
-        // without a token even when one is set — only network peers must auth.
-        // This keeps the local hook working regardless of AGLINK_VOICE_TOKEN.
+        // Our own Stop hook on loopback passes without a token; browser pages
+        // and network peers without the token are refused (see hookAllowed).
         const ra = (req.socket && req.socket.remoteAddress) || "";
-        const isLoopback = ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1";
-        if (tok && !isLoopback) {
-          const got = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "").trim();
-          if (got !== tok) {
-            res.writeHead(401).end('{"error":"aglink-voice: token required"}');
-            return;
-          }
+        if (!hookAllowed({ remoteAddress: ra, headers: req.headers }, tok)) {
+          res.writeHead(401).end('{"error":"aglink-voice: not allowed"}');
+          return;
         }
         if (req.method !== "POST" || req.url !== "/stop") {
           res.writeHead(404).end();
@@ -281,10 +276,15 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     if (whisper && engine) await engine.ensureWhisper();
   }
 
+  // startupOpts are the engine options read only when it starts.
+  function startupOpts() {
+    return { whisperServer: (cfg().get("whisperServer") || "").trim(), micCleanup: cfg().get("micCleanup") || "off" };
+  }
+
   async function startCore(whisper) {
     const { exe, root } = enginePaths(cfg());
     if (!fs.existsSync(exe)) throw new Error(`음성 엔진이 설치되어 있지 않아요 (${exe}). aglink 음성 설치 파일을 먼저 실행해 주세요.`);
-    const e = new Engine(exe, root, log, { whisper, whisperServer: (cfg().get("whisperServer") || "").trim(), micCleanup: cfg().get("micCleanup") || "off" });
+    const e = new Engine(exe, root, log, { whisper, ...startupOpts() });
     e.on("exit", (code) => {
       if (engine !== e) return;
       const wasOn = voiceOn();
@@ -354,6 +354,14 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   async function start() {
     clearTimeout(readerTimer);
     readerTimer = null;
+    // An engine kept for reading was started with the settings of its day;
+    // whisperServer and micCleanup only take effect at startup, so restart it
+    // if they changed meanwhile — otherwise off/on would silently keep the old.
+    const want = startupOpts();
+    if (engine && (engine.whisperServer !== want.whisperServer || engine.micCleanup !== want.micCleanup)) {
+      log("voice: engine settings changed — restarting the engine");
+      teardown();
+    }
     await ensureServer();
     await ensureCore(true);
     await conv.start();
