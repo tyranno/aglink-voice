@@ -1,0 +1,46 @@
+// clipboardSender hands spoken words to Claude Code the only way there is:
+// they go on the clipboard, Claude Code's input box takes the focus, and
+// something (the engine, or the desktop app) presses Ctrl+V, Enter. The
+// clipboard is then given back — but only if it still holds our words: what
+// the user copied meanwhile is left alone. Sends run one at a time, so a
+// second one waits for the first's restore and never takes its words for the
+// user's clipboard. Used by standalone.js and desktoplink.js.
+"use strict";
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// clipboard: {readText, writeText}; focus() puts the focus in Claude Code's
+// input box (throws if it cannot); deliver() presses the keys and resolves
+// {ok, error}. A failed send leaves the words on the clipboard to paste by hand.
+function clipboardSender({ clipboard, focus, deliver, focusWaitMs = 250, restoreWaitMs = 800, wait = sleep }) {
+  let chain = Promise.resolve();
+
+  async function once(text) {
+    const old = await clipboard.readText();
+    await clipboard.writeText(text);
+    try {
+      await focus();
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+    await wait(focusWaitMs);
+    let res;
+    try {
+      res = await deliver();
+    } catch (e) {
+      res = { ok: false, error: e.message };
+    }
+    if (!res || !res.ok) return { ok: false, error: (res && res.error) || "보내지 못했어요" };
+    await wait(restoreWaitMs); // the paste reads the clipboard a moment after the keys
+    if ((await clipboard.readText()) === text) await clipboard.writeText(old);
+    return { ok: true };
+  }
+
+  return function send(text) {
+    const run = chain.then(() => once(text));
+    chain = run.catch(() => {});
+    return run;
+  };
+}
+
+module.exports = { clipboardSender };

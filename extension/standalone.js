@@ -21,6 +21,7 @@ const http = require("http");
 const path = require("path");
 const { Engine } = require("./core/engine");
 const { Conversation } = require("./core/conversation");
+const { clipboardSender } = require("./core/clipsend");
 const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
 const { STANDALONE_PORT, ensureStopHook, ownsTurn, hookAllowed } = require("./hook");
 const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
@@ -28,7 +29,6 @@ const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
 const SECTION = "aglinkVoice";
 const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge", "echoCancel", "micDevice", "outputDevice"];
 const READER_IDLE_MS = 10 * 60000;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // enginePaths: where the setup put the engine (%LOCALAPPDATA%\aglink-voice),
 // unless the settings say otherwise. The root holds models\ and whisper\.
@@ -71,6 +71,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   let server = null;
   let starting = null;
   let readerTimer = null;
+  let epoch = 0; // counts teardowns: a start that outlives one is dropped
   let last = { on: false, phase: "off", label: "음성 꺼짐" };
   const listeners = new Set(); // the settings panel, told when voice goes on or off
 
@@ -80,26 +81,20 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     return { pid: process.ppid, title: vscode.workspace.name || "" }; // the VS Code main process owns the window
   }
 
-  async function send(text) {
-    const old = await vscode.env.clipboard.readText();
-    await vscode.env.clipboard.writeText(text);
-    try {
-      await vscode.commands.executeCommand("claude-vscode.focus");
-    } catch (e) {
-      return { ok: false, error: "Claude Code 확장을 찾지 못했어요. 설치되어 있는지 확인해 주세요." };
-    }
-    await sleep(250);
-    let res;
-    try {
-      res = await engine.call("paste", identity());
-    } catch (e) {
-      res = { ok: false, error: e.message };
-    }
-    if (!res.ok) return res; // the words stay on the clipboard
-    await sleep(800);
-    await vscode.env.clipboard.writeText(old);
-    return { ok: true };
-  }
+  // send hands the words to Claude Code (see core/clipsend.js); a failure
+  // (the engine found another window in front, say) comes back as {ok:false,
+  // error} for the conversation to show.
+  const send = clipboardSender({
+    clipboard: vscode.env.clipboard,
+    focus: async () => {
+      try {
+        await vscode.commands.executeCommand("claude-vscode.focus");
+      } catch {
+        throw new Error("Claude Code 확장을 찾지 못했어요. 설치되어 있는지 확인해 주세요.");
+      }
+    },
+    deliver: () => (engine ? engine.call("paste", identity()) : { ok: false, error: "음성 엔진이 꺼져 있어요" }),
+  });
 
   const ICONS = { off: "$(mic)", wake: "$(mic)", conversation: "$(mic-filled)", listening: "$(mic-filled)", preparing: "$(loading~spin)", transcribing: "$(loading~spin)", speaking: "$(unmute)", waiting: "$(watch)", note: "$(mic-filled)", problem: "$(warning)" };
 
@@ -292,7 +287,13 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       teardown();
       if (wasOn) vscode.window.showWarningMessage("aglink 음성: 음성 엔진이 멈춰서 음성을 껐어요. 다시 켜 주세요.");
     });
+    const my = epoch;
     await e.start();
+    if (my !== epoch) {
+      // voice went off (or the window closed) while the engine was starting
+      e.stop();
+      throw new Error("음성 엔진을 켜는 동안 음성이 꺼졌어요");
+    }
     engine = e;
     conv = new Conversation({
       engine: e,
@@ -313,6 +314,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   // teardown stops everything: the conversation, the engine, and the hook
   // server unless typed questions' answers are still to be read.
   function teardown() {
+    epoch++;
     clearTimeout(readerTimer);
     readerTimer = null;
     const c = conv;
@@ -476,6 +478,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       return { dispose: () => listeners.delete(fn) };
     },
     dispose() {
+      epoch++;
       clearTimeout(readerTimer);
       animate(false);
       const c = conv;

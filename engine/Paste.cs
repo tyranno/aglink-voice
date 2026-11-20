@@ -65,6 +65,10 @@ namespace AglinkVoice
                 if (Front() != h) return "VS Code 창을 앞으로 가져오지 못했어요. 할 말은 클립보드에 넣어 두었어요";
                 Thread.Sleep(150);
             }
+            // Once more right before the keys: in the wait above (or since the
+            // extension focused Claude Code) another window may have come to
+            // the front, and Ctrl+V there would paste the words into it.
+            if (Front() != h) return "다른 창이 앞에 있어 붙여넣지 않았어요. 할 말은 클립보드에 넣어 두었어요";
             Key(VkControl, false);
             Key(VkV, false);
             Key(VkV, true);

@@ -17,6 +17,7 @@
 
 const http = require("http");
 const { DESKTOP_PORT: PORT, ensureStopHook } = require("./hook");
+const { clipboardSender } = require("./core/clipsend");
 
 const MIN_BACKOFF_MS = 2000;
 const MAX_BACKOFF_MS = 30000;
@@ -63,8 +64,6 @@ function post(p, body) {
     r.end(data);
   });
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const HEAR_FRAME_MS = 300;
 
@@ -149,24 +148,18 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
     item.show();
   }
 
+  // sendText hands the words to Claude Code (see core/clipsend.js), one
+  // prompt at a time.
+  const sendText = clipboardSender({
+    clipboard: vscode.env.clipboard,
+    focus: () => vscode.commands.executeCommand("claude-vscode.focus"),
+    deliver: () => post("/vscode/paste", identity()),
+  });
+
   async function onPrompt(text) {
-    const old = await vscode.env.clipboard.readText();
-    await vscode.env.clipboard.writeText(text);
-    await vscode.commands.executeCommand("claude-vscode.focus");
-    await sleep(250);
-    let res;
-    try {
-      res = await post("/vscode/paste", identity());
-    } catch (e) {
-      res = { ok: false, error: e.message };
-    }
+    const res = await sendText(text);
     log(`voice prompt ${res.ok ? "sent" : `not sent: ${res.error}`}`);
-    if (!res.ok) {
-      vscode.window.showWarningMessage(`aglink 음성: ${res.error}`);
-      return; // the words stay on the clipboard
-    }
-    await sleep(800);
-    await vscode.env.clipboard.writeText(old);
+    if (!res.ok) vscode.window.showWarningMessage(`aglink 음성: ${res.error}`); // the words stay on the clipboard
   }
 
   function connect() {
