@@ -19,6 +19,20 @@ const NOTIFY_SCRIPT = `// ${NOTIFY_MARK}: hands Codex's finished turn (notify) t
 // Codex passes the turn as JSON in the last argument. Never fails the turn.
 const done = () => process.exit(0);
 setTimeout(done, 3000);
+// "--then <program> <args...>": the notify this one took the place of (Codex
+// runs only one). It runs first with the same turn, on its own, every time.
+{
+  const a = process.argv.slice(2);
+  const at = a.indexOf("--then");
+  const prev = at >= 0 ? a.slice(at + 1, a.length - 1) : [];
+  if (prev.length) {
+    try {
+      const c = require("child_process").spawn(prev[0], [...prev.slice(1), a[a.length - 1]], { detached: true, stdio: "ignore", windowsHide: true });
+      c.on("error", () => {});
+      c.unref();
+    } catch {}
+  }
+}
 let h = null;
 try { h = JSON.parse(process.argv[process.argv.length - 1] || ""); } catch {}
 if (!h || h.type !== "agent-turn-complete") done();
@@ -65,8 +79,59 @@ function ensureNotifyScript(home = os.homedir()) {
 // program that runs it: "node" from PATH on this PC; on an SSH server the
 // path the bridge found, since Codex there often has no node on its PATH
 // (nvm sets it up only in interactive shells).
-function notifyLine(script, node = "node") {
-  return `notify = [${JSON.stringify(node)}, ${JSON.stringify(script.replace(/\\/g, "/"))}]`;
+// then is another program's notify (its argv) that ours runs first, so both
+// get every turn ("같이 쓰기").
+function notifyArgv(script, node = "node", then = []) {
+  return [node, script.replace(/\\/g, "/"), ...(then.length ? ["--then", ...then] : [])];
+}
+function notifyLine(script, node = "node", then = []) {
+  return `notify = [${notifyArgv(script, node, then).map((s) => JSON.stringify(s)).join(", ")}]`;
+}
+
+// parseNotify finds the top-level notify = [ … ] and its strings: {start, end,
+// argv} (end just past the "]"), or null when there is none or it is written
+// in a way read here (multi-line strings, non-string items) is not sure of.
+function parseNotify(toml) {
+  const text = String(toml || "");
+  const m = /^[ \t]*notify[ \t]*=[ \t]*\[/m.exec(text);
+  if (!m) return null;
+  const argv = [];
+  let i = m.index + m[0].length;
+  for (;;) {
+    while (i < text.length && /[\s,]/.test(text[i])) i++;
+    const ch = text[i];
+    if (ch === "]") return { start: m.index, end: i + 1, argv };
+    if (ch === "#") {
+      while (i < text.length && text[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === '"' && text.slice(i, i + 3) !== '"""') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"' && text[j] !== "\n") j += text[j] === "\\" ? 2 : 1;
+      if (text[j] !== '"') return null;
+      try {
+        argv.push(JSON.parse(text.slice(i, j + 1)));
+      } catch {
+        return null;
+      }
+      i = j + 1;
+    } else if (ch === "'" && text.slice(i, i + 3) !== "'''") {
+      const j = text.indexOf("'", i + 1);
+      if (j < 0 || text.slice(i + 1, j).includes("\n")) return null;
+      argv.push(text.slice(i + 1, j));
+      i = j + 1;
+    } else return null;
+  }
+}
+
+// oursIn: the notify runs our script (alone, or ahead of another program).
+const oursIn = (cur) => !!cur && cur.argv.length >= 2 && cur.argv[1].includes(NOTIFY_MARK);
+// thenOf: the program ours runs first ("--then …"), [] for none.
+const thenOf = (cur) => (cur && cur.argv.indexOf("--then") >= 0 ? cur.argv.slice(cur.argv.indexOf("--then") + 1) : []);
+
+// replaceNotify puts line where cur's notify = [ … ] was.
+function replaceNotify(toml, cur, line) {
+  return toml.slice(0, cur.start) + line + toml.slice(cur.end);
 }
 
 // withOurNotify returns the config with our notify line replaced by line, or
@@ -149,7 +214,7 @@ async function notifyFiles(vscode, home, env) {
 async function codexNotifyConfigured(vscode) {
   try {
     const files = await notifyFiles(vscode, os.homedir(), process.env);
-    return (await files.read()).includes(NOTIFY_MARK);
+    return oursIn(parseNotify(await files.read()));
   } catch {
     return false;
   }
@@ -175,30 +240,66 @@ async function installCodexNotify(vscode, log, { home = os.homedir(), env = proc
   const line = notifyLine(files.commandPath, files.node);
   const COPY = "줄 복사";
   const UPDATE = "갱신";
-  if (hasNotify(toml)) {
-    const ours = toml.includes(NOTIFY_MARK);
+  const BOTH = "같이 쓰기";
+  // rewrite re-reads the config (it may have changed meanwhile) and puts
+  // want in place of the notify, if that notify is still `same`.
+  const rewrite = async (same, want, what) => {
+    try {
+      await ensureScript();
+      const now = await read();
+      const cur = parseNotify(now);
+      if (!cur || JSON.stringify(cur.argv) !== JSON.stringify(same)) {
+        vscode.window.showWarningMessage(`aglink 음성: ${file} 의 notify 가 그사이 바뀌어서 그대로 두었어요.`);
+        return false;
+      }
+      await write(replaceNotify(now, cur, want));
+    } catch (e) {
+      vscode.window.showErrorMessage(`aglink 음성: ${file} 에 쓰지 못했어요 — ${e.message}`);
+      return false;
+    }
+    log(`voice: Codex notify ${what} in ${file}`);
+    vscode.window.showInformationMessage("aglink 음성: Codex 답 읽기를 설정했어요. Codex 를 다시 열면 적용돼요.");
+    return true;
+  };
+  const cur = parseNotify(toml);
+  if (oursIn(cur)) {
     // Ours, but naming another node or script (a bare "node" not on the
-    // server's PATH, a VS Code server since updated): offer to fix it.
-    if (ours && !toml.includes(line) && withOurNotify(toml, line) !== null) {
+    // server's PATH, a VS Code server since updated): offer to fix it,
+    // keeping the program it runs first.
+    const want = notifyLine(files.commandPath, files.node, thenOf(cur));
+    if (JSON.stringify(cur.argv) !== JSON.stringify(notifyArgv(files.commandPath, files.node, thenOf(cur)))) {
       const pick = await vscode.window.showInformationMessage(
-        `aglink 음성: ${file} 의 Codex 답 읽기 설정을 이 줄로 바꿀까요?\n\n${line}\n\n바꾼 뒤에는 Codex 를 다시 열어 주세요.`,
+        `aglink 음성: ${file} 의 Codex 답 읽기 설정을 이 줄로 바꿀까요?\n\n${want}\n\n바꾼 뒤에는 Codex 를 다시 열어 주세요.`,
         { modal: true },
         UPDATE,
       );
       if (pick !== UPDATE) return false;
+      return rewrite(cur.argv, want, "updated");
+    }
+  } else if (cur && cur.argv.length) {
+    // Another program's notify. Codex runs only one, so ours can take its
+    // place and run it first with the same turn ("같이 쓰기"): both keep
+    // working. Nothing changes without that click.
+    const want = notifyLine(files.commandPath, files.node, cur.argv);
+    const pick = await vscode.window.showWarningMessage(
+      `aglink 음성: ${file} 에 이미 다른 notify 가 있어요 (Codex 는 하나만 실행해요):\n${cur.argv.join(" ")}\n\n"같이 쓰기" 를 누르면 aglink 알림이 그 프로그램을 먼저 그대로 실행한 뒤 답을 음성으로 보내요. 줄은 이렇게 바뀌어요:\n${want}`,
+      { modal: true },
+      BOTH,
+      COPY,
+    );
+    if (pick === BOTH) return rewrite(cur.argv, want, "set up next to the existing one");
+    if (pick === COPY) {
       try {
         await ensureScript();
-        const next = withOurNotify(await read(), line); // read again: it may have changed meanwhile
-        if (next === null) return false;
-        await write(next);
+        await vscode.env.clipboard.writeText(want);
       } catch (e) {
-        vscode.window.showErrorMessage(`aglink 음성: ${file} 에 쓰지 못했어요 — ${e.message}`);
-        return false;
+        vscode.window.showErrorMessage(`aglink 음성: 알림 스크립트를 준비하지 못했어요. (${e.message})`);
       }
-      log(`voice: Codex notify updated in ${file}`);
-      vscode.window.showInformationMessage("aglink 음성: Codex 답 읽기 설정을 바꿨어요. Codex 를 다시 열면 적용돼요.");
-      return true;
     }
+    return false;
+  }
+  if (hasNotify(toml)) {
+    const ours = oursIn(cur);
     const pick = await vscode.window.showWarningMessage(
       ours
         ? `aglink 음성: ${file} 에 이미 Codex 답 읽기 설정이 있어요.`
@@ -248,4 +349,4 @@ async function installCodexNotify(vscode, log, { home = os.homedir(), env = proc
   return true;
 }
 
-module.exports = { NOTIFY_MARK, NOTIFY_SCRIPT, codexConfigPath, ensureNotifyScript, notifyLine, hasNotify, withNotify, withOurNotify, installCodexNotify, codexNotifyConfigured };
+module.exports = { NOTIFY_MARK, NOTIFY_SCRIPT, codexConfigPath, ensureNotifyScript, notifyLine, parseNotify, hasNotify, withNotify, withOurNotify, installCodexNotify, codexNotifyConfigured };

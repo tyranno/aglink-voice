@@ -947,6 +947,20 @@ class Conversation extends EventEmitter {
     } catch (e) {
       res = { ok: false, error: e.message };
     }
+    if (res && res.ok && res.noAnswer) {
+      // Sent, but no answer can come back (Codex without our notify): waiting
+      // for one would hold the mic until the timeout — listen again now.
+      if (this.question === q) {
+        clearTimeout(this.awaiting);
+        this.awaiting = null;
+        this.heard = "";
+      }
+      this.log(`no answer will come from ${agent.name}: ${res.noAnswer}`);
+      this.flash(`💻 ${agent.name} 로 보냈어요 — ${res.noAnswer}`);
+      this.render();
+      this.resumeListening(0);
+      return;
+    }
     if (res && res.ok) {
       this.flash(`💻 ${agent.name} 로 보냈어요`);
       return;

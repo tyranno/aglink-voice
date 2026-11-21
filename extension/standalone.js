@@ -343,7 +343,14 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       engine: e,
       settings,
       store,
-      send,
+      // A send to Codex whose answers cannot come back (no notify line of
+      // ours) is marked so the conversation does not wait for one.
+      send: async (text, ctx) => {
+        const res = await send(text, ctx);
+        if (res && res.ok && ctx && ctx.agent === "codex" && !(await codexNotifyConfigured(vscode)))
+          return { ...res, noAnswer: "답은 읽지 못해요 (명령: aglink 음성: Codex 답 읽기 설정)" };
+        return res;
+      },
       newConversation: () => agentCommand(agent(), "newConversation"),
       agent: (id) => {
         const a = id && AGENTS[id] ? AGENTS[id] : agent();

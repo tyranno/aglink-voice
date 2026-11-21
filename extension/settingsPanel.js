@@ -57,6 +57,9 @@ function openSettings(vscode, host) {
           case "preview":
             await host.preview();
             break;
+          case "codexNotify":
+            await vscode.commands.executeCommand("aglinkVoice.installCodexNotify");
+            break;
           case "enroll":
             await host.enroll();
             break;
@@ -161,6 +164,10 @@ function html(nonce) {
   <label class="radio"><input type="radio" name="target" value="auto"><span><b>자동</b><br><span class="desc">마지막으로 띄웠거나 답한 쪽으로 보내요. 처음에는 Claude Code예요.</span></span></label>
 </div>
 <p class="desc">여기서 고르지 않아도 "코덱스한테 …", "클로드한테 …" 처럼 앞에 붙여 말하면 그 말만 그쪽으로 보내요.</p>
+<div class="row">
+  <button class="secondary" id="codexNotify">Codex 답 읽기 설정</button>
+  <span class="desc">Codex 의 답을 소리로 들으려면 한 번 해 두세요. Codex 설정(config.toml)에 알림 줄을 넣어요. 다른 알림이 이미 있으면 "같이 쓰기" 로 둘 다 쓸 수 있어요.</span>
+</div>
 
 <h2>듣는 방식</h2>
 <div class="row">
@@ -314,7 +321,7 @@ function html(nonce) {
   for (const name of ["listenMode", "target"])
     for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.addEventListener("change", (e) => e.target.checked && set(name, e.target.value));
   for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
-  for (const id of ["toggle", "preview", "enroll", "unenroll", "native", "vocab", "pickMic", "pickOutput"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
+  for (const id of ["toggle", "preview", "codexNotify", "enroll", "unenroll", "native", "vocab", "pickMic", "pickOutput"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
 
   window.addEventListener("message", ({ data: m }) => {
     if (m.type !== "state") return;

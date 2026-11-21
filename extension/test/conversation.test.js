@@ -732,3 +732,14 @@ test("코덱스한테 …: that one question goes to Codex without its name, and
   assert.deepStrictEqual(sent[1], { text: "다음 질문이에요.", ctx: { agent: "claude" } }, "the next question follows the setting again");
   conv.stop();
 });
+
+test("a send whose answer cannot come back (Codex without our notify) does not hold the mic", async () => {
+  const { conv } = await asking();
+  conv.sendText = async () => ({ ok: true, noAnswer: "답은 읽지 못해요" });
+  conv.agent = () => ({ id: "codex", name: "Codex" });
+  await conv.send("빌드해 줘");
+  assert.strictEqual(conv.awaiting, null, "not waiting for an answer");
+  assert.strictEqual(conv.heard, "");
+  assert.notStrictEqual(conv.state().phase, "waiting");
+  conv.stop();
+});

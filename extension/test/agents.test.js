@@ -236,3 +236,81 @@ test("remote Codex notify names the node the bridge found, and an old line of ou
   assert.strictEqual(await installCodexNotify(vscode, () => {}, { node: false }), false);
   assert.ok(!writes.includes(paths.config));
 });
+
+test("parseNotify reads the notify array, and 같이 쓰기 runs the other program first", async () => {
+  const { parseNotify } = require("../codexnotify");
+  const exe = ["C:", "Program Files", "WindowsApps", "codex-computer-use.exe"].join(String.fromCharCode(92));
+  const toml = `model = "gpt-5"\nnotify = [ ${JSON.stringify(exe)}, "turn-ended" ]\n\n[tui]\na = 1\n`;
+  const cur = parseNotify(toml);
+  assert.deepStrictEqual(cur.argv, [exe, "turn-ended"]);
+  assert.strictEqual(toml.slice(cur.end), "\n\n[tui]\na = 1\n");
+  assert.deepStrictEqual(parseNotify("notify = ['a b', \"c\"] # x\n").argv, ["a b", "c"]);
+  assert.deepStrictEqual(parseNotify("notify = [\n  \"a\", # first\n  \"b\",\n]\n").argv, ["a", "b"]);
+  assert.strictEqual(parseNotify('notify = ["""x"""]'), null);
+  assert.strictEqual(parseNotify("model = 1\n"), null);
+
+  // the command: an existing notify is replaced only on 같이 쓰기, and kept as --then
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "aglink-codex-both-"));
+  const cfgPath = path.join(home, ".codex", "config.toml");
+  fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+  fs.writeFileSync(cfgPath, toml);
+  let pick;
+  const vscode = {
+    env: { remoteName: undefined, clipboard: { writeText: async () => {} } },
+    window: {
+      showWarningMessage: async () => pick,
+      showInformationMessage: async () => undefined,
+      showErrorMessage: (m) => assert.fail(m),
+    },
+  };
+  const env = { AGLINK_VOICE_HOME: path.join(home, ".aglink-voice") };
+  const prevHome = process.env.AGLINK_VOICE_HOME;
+  process.env.AGLINK_VOICE_HOME = env.AGLINK_VOICE_HOME;
+  try {
+    pick = undefined;
+    assert.strictEqual(await installCodexNotify(vscode, () => {}, { home, env }), false);
+    assert.strictEqual(fs.readFileSync(cfgPath, "utf8"), toml, "dismissed: unchanged");
+    pick = "같이 쓰기";
+    assert.strictEqual(await installCodexNotify(vscode, () => {}, { home, env }), true);
+    const now = fs.readFileSync(cfgPath, "utf8");
+    const argv = parseNotify(now).argv;
+    assert.strictEqual(argv[0], "node");
+    assert.match(argv[1], new RegExp(NOTIFY_MARK));
+    assert.deepStrictEqual(argv.slice(2), ["--then", exe, "turn-ended"]);
+    assert.ok(now.startsWith('model = "gpt-5"\n') && now.endsWith("\n\n[tui]\na = 1\n"));
+    // set up now: opening the command again changes nothing
+    pick = "같이 쓰기";
+    await installCodexNotify(vscode, () => {}, { home, env });
+    assert.strictEqual(fs.readFileSync(cfgPath, "utf8"), now);
+  } finally {
+    if (prevHome === undefined) delete process.env.AGLINK_VOICE_HOME;
+    else process.env.AGLINK_VOICE_HOME = prevHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("the notify script runs the program it took the place of with the same turn", async () => {
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const { spawn } = require("child_process");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aglink-codex-then-"));
+  const script = path.join(dir, "notify.js");
+  const prev = path.join(dir, "prev.js");
+  const out = path.join(dir, "prev.out");
+  fs.writeFileSync(script, NOTIFY_SCRIPT);
+  fs.writeFileSync(prev, `require("fs").writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.argv.slice(2)));`);
+  const turn = JSON.stringify({ type: "agent-turn-complete", "last-assistant-message": "hi" });
+  const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(AGLINK_|SSH_CONNECTION)/.test(k)));
+  // a bridge port without a token: ours posts nothing, the other still runs
+  await new Promise((r) => spawn(process.execPath, [script, "--then", process.execPath, prev, "turn-ended", turn], { env: { ...clean, AGLINK_VOICE_PORT: "1" } }).on("exit", r));
+  for (let i = 0; i < 100 && !fs.existsSync(out); i++) await new Promise((r) => setTimeout(r, 50));
+  try {
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(out, "utf8")), ["turn-ended", turn]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

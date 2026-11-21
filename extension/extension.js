@@ -205,7 +205,7 @@ function activate(context) {
       items.push(
         { label: "", kind: vscode.QuickPickItemKind.Separator },
         { label: `$(hubot) 보낼 곳: ${targetLabel(s.get("target"))}`, run: pickTarget },
-        ...((s.get("target") || "claude") === "claude" ? [] : [{ label: "$(bell) Codex 답 읽기 설정", description: "~/.codex/config.toml 의 notify", run: () => vscode.commands.executeCommand("aglinkVoice.installCodexNotify") }]),
+        { label: "$(bell) Codex 답 읽기 설정", description: "Codex 의 답을 소리로 듣기 (config.toml 의 notify)", run: () => vscode.commands.executeCommand("aglinkVoice.installCodexNotify") },
         { label: `$(person) 목소리: ${voiceLabel(s.get("voice") || "M2")}`, run: pickVoice },
         { label: `$(dashboard) 빠르기: ${s.get("speed")}배`, run: pickSpeed },
         { label: `$(play) 지금 목소리로 들어 보기`, run: () => standalone.preview() },
