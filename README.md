@@ -72,3 +72,8 @@ builds, in `dist\` (NSIS 3 needed):
 Nothing is downloaded at install. The Visual C++ runtime is copied next to
 the engine and Whisper, so PCs without it work. On PCs without Node.js the
 Claude Code Stop hook runs in Windows PowerShell.
+
+A spoken prompt is pasted only while the clipboard still holds it: a copy
+made while VS Code is being focused cancels the send and is kept, and a
+failed clipboard restore after a send no longer reports the send as failed
+(v0.5.28).

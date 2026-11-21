@@ -153,6 +153,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
   // prompt at a time.
   const sendText = clipboardSender({
     clipboard: vscode.env.clipboard,
+    log,
     focus: () => vscode.commands.executeCommand(AGENTS.claude.focus), // the desktop app reads Claude Code's answers only
     deliver: () => post("/vscode/paste", identity()),
   });
@@ -160,7 +161,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
   async function onPrompt(text) {
     const res = await sendText(text);
     log(`voice prompt ${res.ok ? "sent" : `not sent: ${res.error}`}`);
-    if (!res.ok) vscode.window.showWarningMessage(`aglink 음성: ${res.error}`); // the words stay on the clipboard
+    if (!res.ok) vscode.window.showWarningMessage(`aglink 음성: ${res.error}`);
   }
 
   function connect() {

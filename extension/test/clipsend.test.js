@@ -35,6 +35,37 @@ test("clipsend: the clipboard comes back after a send", async () => {
   assert.equal(r.text, "원래 복사한 것");
 });
 
+test("clipsend: a copy during focus cancels the paste and is preserved", async () => {
+  const r = rig();
+  const send = clipboardSender({
+    clipboard: r.clipboard,
+    focus: async () => {},
+    deliver: async () => assert.fail("must not paste the newly copied text"),
+    wait: async () => { r.text = "방금 복사한 것"; },
+  });
+  assert.equal((await send("안녕")).ok, false);
+  assert.equal(r.text, "방금 복사한 것");
+});
+
+test("clipsend: a restore error does not mark an already sent prompt as failed", async () => {
+  const r = rig();
+  const send = clipboardSender({
+    clipboard: {
+      readText: r.clipboard.readText,
+      writeText: async (value) => {
+        if (value === "원래 복사한 것") throw new Error("clipboard locked");
+        await r.clipboard.writeText(value);
+      },
+    },
+    focus: async () => {},
+    deliver: async () => ({ ok: true }),
+    log: (message) => r.log.push(message),
+    wait: async () => {},
+  });
+  assert.deepEqual(await send("안녕"), { ok: true });
+  assert.match(r.log.at(-1), /clipboard restore failed/);
+});
+
 test("clipsend: what the user copies during a send is not overwritten", async () => {
   const r = rig();
   let open;

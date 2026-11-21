@@ -18,6 +18,7 @@ namespace AglinkVoice
         [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
         [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
         [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] static extern uint GetClipboardSequenceNumber();
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
         [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, uint flags);
@@ -51,6 +52,7 @@ namespace AglinkVoice
         // Send returns null when sent, else why not (in words for the user).
         public static string? Send(int pid, string title)
         {
+            uint clipboardSequence = GetClipboardSequenceNumber();
             var h = Find(pid, title);
             if (h == IntPtr.Zero) return "VS Code 창을 찾지 못했어요";
             if (Front() != h)
@@ -69,12 +71,16 @@ namespace AglinkVoice
             // extension focused Claude Code) another window may have come to
             // the front, and Ctrl+V there would paste the words into it.
             if (Front() != h) return "다른 창이 앞에 있어 붙여넣지 않았어요. 할 말은 클립보드에 넣어 두었어요";
+            if (GetClipboardSequenceNumber() != clipboardSequence)
+                return "클립보드가 바뀌어 붙여넣지 않았어요. 다시 말씀해 주세요.";
             Key(VkControl, false);
             Key(VkV, false);
             Key(VkV, true);
             Key(VkControl, true);
             Thread.Sleep(120);
             if (Front() != h) return "VS Code 창이 바뀌어 보내지 못했어요. 입력칸을 확인해 주세요";
+            if (GetClipboardSequenceNumber() != clipboardSequence)
+                return "클립보드가 바뀌어 보내지 않았어요. 입력칸을 확인해 주세요.";
             Key(VkReturn, false);
             Key(VkReturn, true);
             return null;

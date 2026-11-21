@@ -130,6 +130,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
 
   const send = clipboardSender({
     clipboard: vscode.env.clipboard,
+    log,
     focus: () => {
       const a = agent();
       if (a.id === "codex") hintCodexNotify();
