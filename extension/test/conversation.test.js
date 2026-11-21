@@ -560,3 +560,76 @@ test("대기 그만 drops an answer that never comes: voice stays on, the mic op
   assert.strictEqual(conv.stopWaiting(), false, "nothing to drop twice");
   conv.stop();
 });
+
+// asking: a conversation on, the mic not recording, ready to send() directly.
+async function asking(over = {}) {
+  const t = setup({ settings: { listenMode: "always", ...over } });
+  await t.conv.start();
+  if (t.conv.rec) t.conv.stopRecording(false);
+  return t;
+}
+
+test("two quick sends: the first question's answer is dropped, only the second's is read", async () => {
+  const { conv, engine, sent, until } = await asking();
+  await conv.send("빌드 돌려 줘.");
+  await conv.send("테스트도 돌려 줘.");
+  assert.deepStrictEqual(sent, ["빌드 돌려 줘.", "테스트도 돌려 줘."]);
+  assert.strictEqual(conv.onReply("빌드가 끝났어요.", { question: "빌드 돌려 줘." }), true, "handled: an earlier question's");
+  assert.ok(conv.awaiting, "still waiting for the second answer");
+  assert.strictEqual(engine.ops("tts").length, 0, "the first answer is not read");
+  assert.strictEqual(conv.onReply("손으로 친 질문의 답", { question: "이건 타이핑했어요" }), false, "a typed question is not ours");
+  assert.ok(conv.awaiting);
+  assert.strictEqual(conv.onReply("테스트가 모두 통과했어요.", { question: "<ide_opened_file>a.js</ide_opened_file>\n테스트도  돌려 줘.\r\n" }), true);
+  assert.strictEqual(conv.awaiting, null);
+  await until(() => engine.ops("tts").length > 0, "the reading");
+  assert.match(engine.ops("tts").map((c) => c.text).join(" "), /테스트가 모두 통과/);
+  conv.stop();
+});
+
+test("a new question by the wake word mid-wait: the late old answer is dropped, the new one read", async () => {
+  const { conv, engine, sent, feed, until } = setup();
+  await conv.start();
+  engine.text = "아글링크야, 빌드 돌려 줘.";
+  await feed(0.001, 500);
+  await feed(0.2, 800);
+  await feed(0.001, 700);
+  await until(() => sent.length === 1, "the first request");
+  engine.text = "아글링크야, 커밋해 줘.";
+  await feed(0.001, 500);
+  await feed(0.2, 800);
+  await feed(0.001, 700);
+  await until(() => sent.length === 2, "the second request");
+  assert.deepStrictEqual(sent, ["빌드 돌려 줘.", "커밋해 줘."]);
+  const reads = engine.ops("tts").length;
+  assert.strictEqual(conv.onReply("빌드 끝났어요.", { question: "빌드 돌려 줘." }), true);
+  assert.ok(conv.awaiting, "the new question is still awaited");
+  assert.strictEqual(engine.ops("tts").length, reads);
+  assert.strictEqual(conv.onReply("커밋했어요.", { question: "커밋해 줘." }), true);
+  await until(() => engine.ops("tts").some((c) => /커밋했어요/.test(c.text)), "the new answer read");
+  conv.stop();
+});
+
+test("without a transcript the answer is taken as before, but not from another session than the last answer's", async () => {
+  const { conv, engine, until } = await asking();
+  await conv.send("첫 질문이에요.");
+  assert.strictEqual(conv.onReply("첫 답이에요.", { sessionId: "s1" }), true);
+  await until(() => !conv.speaking, "the first reading");
+  if (conv.rec) conv.stopRecording(false);
+  await conv.send("두 번째 질문이에요.");
+  assert.strictEqual(conv.onReply("다른 탭의 답", { sessionId: "s2" }), false);
+  assert.ok(conv.awaiting, "still waiting");
+  assert.strictEqual(conv.onReply("두 번째 답이에요.", { sessionId: "s1" }), true);
+  assert.strictEqual(conv.awaiting, null);
+  await until(() => engine.ops("tts").some((c) => /두 번째 답/.test(c.text)), "the second answer read");
+  conv.stop();
+});
+
+test("an answer from the other agent than the one asked is not taken", async () => {
+  const { conv } = await asking();
+  await conv.send("질문이에요.");
+  assert.strictEqual(conv.onReply("다른 에이전트의 답", { agent: "codex" }), false);
+  assert.ok(conv.awaiting);
+  assert.strictEqual(conv.onReply("답이에요.", { agent: "claude" }), true);
+  conv.stop();
+});
+

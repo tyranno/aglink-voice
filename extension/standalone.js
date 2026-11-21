@@ -22,6 +22,7 @@ const path = require("path");
 const { Engine } = require("./core/engine");
 const { Conversation } = require("./core/conversation");
 const { clipboardSender } = require("./core/clipsend");
+const { turnFromHook } = require("./core/turns");
 const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
 const { STANDALONE_PORT, ensureStopHook, ownsTurn, hookAllowed } = require("./hook");
 const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
@@ -182,19 +183,20 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
 
   function onTurn(h) {
     // Claude Code runs the hook for every session on this PC (the CLI,
-    // aglink's); only VS Code's answers are read.
-    if (h.entrypoint && h.entrypoint !== "claude-vscode") return;
+    // aglink's); only VS Code's answers are read (see core/turns.js).
+    const turn = turnFromHook(h);
+    if (!turn) return;
     // Only this window's folder: another window's answer is read there (or by
     // the desktop app), not here as well.
     const folders = (vscode.workspace.workspaceFolders || []).map((f) => (f.uri.scheme === "file" ? f.uri.fsPath : f.uri.path));
-    if (!ownsTurn(h.cwd, folders)) return;
-    const md = h.last_assistant_message;
+    if (!ownsTurn(turn.cwd, folders)) return;
+    const md = turn.md;
     if (!md) return;
     const receivedAt = Date.now();
-    const lag = answerLag(h.transcript_path, receivedAt);
-    log(`voice: answer arrived${lag != null ? ` ${lag} ms after Claude Code wrote it` : ""}`);
+    const lag = answerLag(turn.transcript, receivedAt);
+    log(`voice: answer arrived${lag != null ? ` ${lag} ms after Claude Code wrote it` : ""}${turn.question === undefined ? " (its question unknown)" : ""}`);
     if (conv) conv.answerAt = receivedAt;
-    if (conv && conv.onReply(md)) return; // the answer to what was said
+    if (conv && conv.onReply(md, turn)) return; // the answer to what was said
     if (!settings.get().readTyped || elsewhere()) return;
     void reader().then((c) => {
       if (c && c.readTyped(md)) idleLater();

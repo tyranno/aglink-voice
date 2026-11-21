@@ -22,6 +22,7 @@ const { EventEmitter } = require("events");
 const T = require("./text");
 const A = require("./audio");
 const { speakNumbers } = require("./numbers");
+const { sameQuestion } = require("./turns");
 
 const CHUNK_MS = 50; // the engine's mic pieces
 const CONV_SILENCE_STOP_MS = 2200; // room for "음…" mid-sentence pauses
@@ -85,6 +86,7 @@ const WAKE_PAD_S = 0.4;
 const REF_BEFORE_MS = 450; // speaker + mic latency
 const REF_AFTER_MS = 100;
 const ECHO_MARGIN = 2.5;
+const ASKED_KEEP = 20; // questions remembered, so a late answer to one is known
 const ANSWER_WAIT_MS = 15 * 60000; // an answer never reported stops holding the mic after this
 const FLASH_MS = 2500;
 const SPEED_RANGE = [0.7, 2.0];
@@ -102,13 +104,15 @@ class Conversation extends EventEmitter {
   // store: get(key) / set(key, value) for what is learned (the enrolled
   //   voice, the user's level, the room's echo gain), kept across restarts.
   // send(text) → Promise<{ok, error}>: hands the words to Claude Code.
-  constructor({ engine, settings, store, send, newConversation = async () => {}, log = () => {}, now = Date.now }) {
+  // agent() → {id, name}: who send() goes to (Claude Code or Codex).
+  constructor({ engine, settings, store, send, newConversation = async () => {}, agent = () => ({ id: "claude", name: "Claude Code" }), log = () => {}, now = Date.now }) {
     super();
     this.engine = engine;
     this.settings = settings;
     this.store = store;
     this.sendText = send;
     this.openNewConversation = newConversation;
+    this.agent = agent;
     this.log = log;
     this.now = now;
 
@@ -130,6 +134,10 @@ class Conversation extends EventEmitter {
     this.resumeTimer = null;
     this.flashTimer = null;
     this.awaiting = null; // timer while Claude Code's answer is awaited
+    this.asked = []; // the questions sent, newest last: {id, text, at, agent}
+    this.question = null; // the one of them whose answer is awaited
+    this.askSeq = 0;
+    this.answerSession = null; // the session that answered our last question, when told
     this.convActiveAt = 0;
     this.textOnce = false; // the next answer is shown, not read ("글로만 보여 줘")
 
@@ -862,9 +870,14 @@ class Conversation extends EventEmitter {
   // ---- Claude Code ----
 
   async send(text) {
-    this.log(`to Claude Code ${quote(text)}`);
+    const agent = this.agent();
+    this.log(`to ${agent.name} ${quote(text)}`);
     this.heard = text;
     this.textOnce = T.ONCE_TEXT_RE.test(text);
+    const q = { id: ++this.askSeq, text, at: this.now(), agent: agent.id };
+    this.asked.push(q);
+    if (this.asked.length > ASKED_KEEP) this.asked.shift();
+    this.question = q;
     clearTimeout(this.awaiting);
     this.awaiting = setTimeout(() => {
       this.awaiting = null;
@@ -881,26 +894,53 @@ class Conversation extends EventEmitter {
       res = { ok: false, error: e.message };
     }
     if (res && res.ok) {
-      this.flash("💻 Claude Code 로 보냈어요");
+      this.flash(`💻 ${agent.name} 로 보냈어요`);
       return;
     }
-    clearTimeout(this.awaiting);
-    this.awaiting = null;
-    this.heard = "";
+    if (this.question === q) {
+      clearTimeout(this.awaiting);
+      this.awaiting = null;
+      this.heard = "";
+    }
+    this.asked = this.asked.filter((x) => x !== q); // it never reached the agent
     this.log(`send failed: ${res?.error}`);
-    void this.say((res && res.error) || "Claude Code 로 보내지 못했어요."); // the mic opens again after it
+    void this.say((res && res.error) || `${agent.name} 로 보내지 못했어요.`); // the mic opens again after it
   }
 
-  // onReply is Claude Code's finished turn (the Stop hook). Only the answer to
-  // what was said here is read: the hook reports every turn, typed ones too.
-  onReply(md) {
+  // onReply is a finished turn (Claude Code's Stop hook, Codex's notify).
+  // Only the answer to the question awaited now is read: the hook reports
+  // every turn, typed ones too, and an earlier question's answer can come late.
+  // turn: {question, sessionId, agent}, each when known. question is the
+  // turn's prompt: one of ours but not the current one is dropped (true: it
+  // is handled), one that is none of ours is someone typing (false). Without
+  // it, a turn from another session than the one that answered last is not ours.
+  onReply(md, turn = {}) {
     const text = String(md || "").trim();
-    if (!this.conv || !this.awaiting || !text) return false;
+    if (!text) return false;
+    const current = this.awaiting ? this.question : null;
+    if (typeof turn.question === "string") {
+      let mine = null;
+      for (let i = this.asked.length - 1; i >= 0 && !mine; i--) if (sameQuestion(turn.question, this.asked[i].text)) mine = this.asked[i];
+      if (mine && mine !== current) {
+        this.log(`answer to an earlier question dropped ${quote(mine.text, 20)}`);
+        return true;
+      }
+      if (!mine) {
+        if (current) this.log(`a turn for another question ${quote(turn.question, 20)} — still waiting`);
+        return false;
+      }
+    } else if (current && turn.sessionId && this.answerSession && turn.sessionId !== this.answerSession) {
+      this.log("a turn from another session — still waiting");
+      return false;
+    }
+    if (current && current.agent && turn.agent && current.agent !== turn.agent) return false;
+    if (!this.conv || !current) return false;
     clearTimeout(this.awaiting);
     this.awaiting = null;
     this.heard = "";
+    if (turn.sessionId) this.answerSession = turn.sessionId;
     this.convActiveAt = this.now();
-    this.log("Claude Code answered");
+    this.log(`${this.agent().name} answered`);
     void this.speakReply(text);
     this.textOnce = false;
     this.render();
@@ -1276,6 +1316,7 @@ class Conversation extends EventEmitter {
       case "newConversation":
         try {
           await this.openNewConversation();
+          this.answerSession = null; // the next answer comes from the new session
           void this.say("새 대화를 열었어요. 말씀하세요.");
         } catch (e) {
           this.log(`new conversation failed: ${e.message}`);
