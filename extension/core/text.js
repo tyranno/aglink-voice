@@ -346,24 +346,6 @@ function sentencesOf(text) {
 
 // splitSentences keeps each utterance short: speechSynthesis stalls on long
 // ones, and with Supertonic the first sentence starts playing sooner.
-// splitLead reads a long first sentence in two: a lead of at most max
-// characters, cut after a comma, and the rest. The lead is synthesized first
-// and fast, so the reading starts soon; the rest is made while it plays.
-// Nothing is cut without a comma: a lead cut at a bare space ("…문단을 읽어")
-// breaks the phrase and leaves an audible gap before the rest.
-function splitLead(sentences, max = 20) {
-  const first = sentences[0];
-  if (!first || first.length <= max) return sentences;
-  const head = first.slice(0, max + 1);
-  const comma = Math.max(head.lastIndexOf(", "), head.lastIndexOf("，"));
-  if (comma < 6) return sentences;
-  const cut = comma + 1;
-  const lead = first.slice(0, cut).trim();
-  const rest = first.slice(cut).trim();
-  if (!lead || !rest) return sentences;
-  return [lead, rest, ...sentences.slice(1)];
-}
-
 function splitSentences(text) {
   const parts = text.match(/(?:[^.!?。？！\n]|\.(?=\d))+[.!?。？！]*\s*/g) || [text];
   const out = [];
@@ -573,7 +555,6 @@ module.exports = {
   speechText,
   sentencesOf,
   splitSentences,
-  splitLead,
   matchWakeName,
   wakeMatch,
   wakeNameLabel,

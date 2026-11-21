@@ -48,7 +48,6 @@ const BARGE_ONSET_VAD = 0.6;
 const BARGE_ONSET_MARGIN = 1.5;
 const BARGE_ONSET_MS = 250;
 const MAX_CLIP_MS = 60000;
-const LEAD_MAX_CHARS = 20; // the first piece read: short, so its synthesis starts the reading soon
 const LEAD_SILENCE_MS = 500; // silence before the first piece, so a suspended output (Bluetooth) wakes without eating the opening words
 const PREROLL_MS = 600; // a soft start sits below the floor: keep what came just before it
 const ENROLL_MS = 15000;
@@ -1178,11 +1177,9 @@ class Conversation extends EventEmitter {
     this.log(`reading text (${mode}, ${text.length} chars): "${text.length > 240 ? text.slice(0, 240) + "…" : text}"`);
     this.stopSpeaking();
     const gen = this.gen;
-    // The wait before the first sound is the first piece's synthesis, which
-    // grows with its length: a long first sentence is read in two, a short
-    // lead read first (at full quality) and the rest made while it plays. The
-    // lead is NOT made with fewer steps — that sounded rough on its first words.
-    const sentences = T.splitLead(T.splitSentences(text), LEAD_MAX_CHARS);
+    // Synthesize the opening sentence together so the voice can carry its
+    // intonation through the comma. Prepare the next piece during playback.
+    const sentences = T.splitSentences(text);
     this.replyText = text;
     this.speaking = true; // covers the first synthesis, so the mic waits
     this.render();

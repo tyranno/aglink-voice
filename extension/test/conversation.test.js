@@ -314,15 +314,15 @@ test("a quiet speaker's soft speech still counts once their level is known, and 
   assert.ok(Math.sqrt(s / 8000) > 0.05, "turned up for Whisper");
 });
 
-test("a long first sentence is split lead-first at a comma, every piece at full quality", async () => {
+test("the first sentence is synthesized whole, with the next piece ready to overlap playback", async () => {
   const { conv, engine } = setup();
-  conv.onReply("회의 자료를 정리했고요, 팀원들에게 메일로 보냈습니다. 확인해 주세요.");
-  await conv.speak("회의 자료를 정리했고요, 팀원들에게 메일로 보냈습니다. 확인해 주세요.", "full");
-  const tts = engine.ops("tts").filter((c) => !/아글링크|목소리예요/.test(c.text));
-  assert.ok(tts.length >= 3, JSON.stringify(tts.map((c) => c.text)));
-  const first = tts.findIndex((c) => c.text === "회의 자료를 정리했고요,");
-  assert.ok(first >= 0, "the lead was read on its own");
-  for (const c of tts) assert.strictEqual(c.steps, undefined, "no piece uses fewer steps");
+  const first = "회의 자료를 정리했고요, 팀원들에게 메일로 보냈습니다.";
+  const second = "확인해 주세요.";
+  await conv.speak(`${first} ${second}`, "full");
+  const playback = engine.calls.filter((c) => c.op === "tts" || c.op === "play");
+  assert.deepStrictEqual(playback.map((c) => c.op), ["tts", "tts", "play", "play"]);
+  assert.deepStrictEqual(engine.ops("tts").map((c) => c.text), [first, second]);
+  for (const c of engine.ops("tts")) assert.strictEqual(c.steps, undefined);
 });
 
 test("the button says speech is coming in from the first loud sound until the clip is taken", async () => {
