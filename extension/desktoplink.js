@@ -18,6 +18,7 @@
 const http = require("http");
 const { DESKTOP_PORT: PORT, ensureStopHook } = require("./hook");
 const { clipboardSender } = require("./core/clipsend");
+const { AGENTS } = require("./agents");
 
 const MIN_BACKOFF_MS = 2000;
 const MAX_BACKOFF_MS = 30000;
@@ -152,7 +153,7 @@ function createVoice(vscode, log, { item, active = () => true, onLink = () => {}
   // prompt at a time.
   const sendText = clipboardSender({
     clipboard: vscode.env.clipboard,
-    focus: () => vscode.commands.executeCommand("claude-vscode.focus"),
+    focus: () => vscode.commands.executeCommand(AGENTS.claude.focus), // the desktop app reads Claude Code's answers only
     deliver: () => post("/vscode/paste", identity()),
   });
 

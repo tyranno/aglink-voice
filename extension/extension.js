@@ -14,6 +14,8 @@ const vscode = require("vscode");
 const { createStandalone } = require("./standalone");
 const { openSettings } = require("./settingsPanel");
 const { TTS_VOICES, voiceLabel } = require("./core/text");
+const { installCodexNotify } = require("./codexnotify");
+const { hasNode } = require("./hook");
 
 const SPEEDS = [0.8, 0.9, 0.98, 1.1, 1.2, 1.35, 1.5];
 
@@ -171,6 +173,22 @@ function activate(context) {
   }
 
   const deviceLabel = (v) => v || "윈도우 기본";
+  const TARGETS = [
+    { value: "claude", label: "Claude Code" },
+    { value: "codex", label: "Codex" },
+    { value: "auto", label: "자동", description: "마지막으로 쓴 쪽 (모르면 Claude Code)" },
+  ];
+  const targetLabel = (v) => (TARGETS.find((t) => t.value === v) || TARGETS[0]).label;
+
+  // pickTarget chooses where spoken questions go.
+  async function pickTarget() {
+    const now = cfg().get("target") || "claude";
+    const pick = await vscode.window.showQuickPick(
+      TARGETS.map((t) => ({ ...t, label: `${t.value === now ? "$(check) " : ""}${t.label}` })),
+      { title: "말한 질문을 보낼 곳", placeHolder: "Codex 의 답을 읽으려면 'Codex 답 읽기 설정' 도 한 번 해 주세요" },
+    );
+    if (pick) await set("target", pick.value);
+  }
 
   // menu: the status bar button. On/off first, then the settings changed most.
   async function menu() {
@@ -185,6 +203,8 @@ function activate(context) {
       const onOff = (v) => (v ? "켜짐" : "꺼짐");
       items.push(
         { label: "", kind: vscode.QuickPickItemKind.Separator },
+        { label: `$(hubot) 보낼 곳: ${targetLabel(s.get("target"))}`, run: pickTarget },
+        ...((s.get("target") || "claude") === "claude" ? [] : [{ label: "$(bell) Codex 답 읽기 설정", description: "~/.codex/config.toml 의 notify", run: () => vscode.commands.executeCommand("aglinkVoice.installCodexNotify") }]),
         { label: `$(person) 목소리: ${voiceLabel(s.get("voice") || "M2")}`, run: pickVoice },
         { label: `$(dashboard) 빠르기: ${s.get("speed")}배`, run: pickSpeed },
         { label: `$(play) 지금 목소리로 들어 보기`, run: () => standalone.preview() },
@@ -222,6 +242,7 @@ function activate(context) {
     vscode.commands.registerCommand("aglinkVoice.enroll", settingsHost.enroll),
     vscode.commands.registerCommand("aglinkVoice.unenroll", settingsHost.unenroll),
     vscode.commands.registerCommand("aglinkVoice.preview", settingsHost.preview),
+    vscode.commands.registerCommand("aglinkVoice.installCodexNotify", () => installCodexNotify(vscode, log, { node: hasNode() })),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("aglinkVoice")) render();
       if (e.affectsConfiguration("aglinkVoice.readTyped")) void standalone.syncReadTyped();

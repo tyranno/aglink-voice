@@ -9,7 +9,9 @@
 //   has no way to submit a prompt from outside, so keys are the only way in;
 // - the answer: Claude Code's Stop hook (hook.js) posts each finished turn to
 //   127.0.0.1:STANDALONE_PORT, served here while voice is on or typed
-//   questions' answers are to be read (readTyped).
+//   questions' answers are to be read (readTyped). Codex's notify script
+//   (codexnotify.js) posts its turns there too, when aglinkVoice.target sends
+//   to Codex (agents.js).
 //
 // The engine runs in two ways: with voice on (mic and Whisper), or for
 // reading only (a typed question's answer, a preview) — no mic, no Whisper,
@@ -23,6 +25,8 @@ const { Engine } = require("./core/engine");
 const { Conversation } = require("./core/conversation");
 const { clipboardSender } = require("./core/clipsend");
 const { turnFromHook } = require("./core/turns");
+const { AGENTS, pickAgent, agentOfTab } = require("./agents");
+const { NOTIFY_MARK, codexConfigPath } = require("./codexnotify");
 const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
 const { STANDALONE_PORT, ensureStopHook, ownsTurn, hookAllowed } = require("./hook");
 const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
@@ -85,14 +89,50 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   // send hands the words to Claude Code (see core/clipsend.js); a failure
   // (the engine found another window in front, say) comes back as {ok:false,
   // error} for the conversation to show.
+  // The agent spoken questions go to (aglinkVoice.target, see agents.js);
+  // for "auto", recentAgent is the one whose chat tab was in front last or
+  // whose answer came last.
+  let recentAgent = null;
+  const agent = () => pickAgent(cfg().get("target"), recentAgent);
+  const seeTab = () => {
+    const a = agentOfTab(vscode.window.tabGroups && vscode.window.tabGroups.activeTabGroup && vscode.window.tabGroups.activeTabGroup.activeTab);
+    if (a) recentAgent = a;
+  };
+  const tabWatch = vscode.window.tabGroups ? [vscode.window.tabGroups.onDidChangeTabs(seeTab), vscode.window.tabGroups.onDidChangeTabGroups(seeTab)] : [];
+  seeTab();
+  // Codex's answers need our notify line in ~/.codex/config.toml, which is
+  // only added on the user's click: the first send to Codex without it says so.
+  let codexHinted = false;
+  function hintCodexNotify() {
+    if (codexHinted) return;
+    codexHinted = true;
+    let toml = "";
+    try {
+      toml = fs.readFileSync(codexConfigPath(), "utf8");
+    } catch {}
+    if (toml.includes(NOTIFY_MARK)) return;
+    log("voice: Codex notify is not set up — Codex's answers will not be read");
+    void vscode.window.showInformationMessage("aglink 음성: Codex 의 답을 읽으려면 Codex 설정(config.toml)에 알림 줄이 필요해요.", "설정 보기").then((pick) => {
+      if (pick) void vscode.commands.executeCommand("aglinkVoice.installCodexNotify");
+    });
+  }
+  // agentCommand runs one of the agent's commands, or says it is not installed.
+  async function agentCommand(a, cmd) {
+    const missing = new Error(`${a.name} 확장을 찾지 못했어요. 설치되어 있는지 확인해 주세요.`);
+    if (vscode.extensions && !vscode.extensions.getExtension(a.extension)) throw missing;
+    try {
+      await vscode.commands.executeCommand(a[cmd]);
+    } catch {
+      throw missing;
+    }
+  }
+
   const send = clipboardSender({
     clipboard: vscode.env.clipboard,
-    focus: async () => {
-      try {
-        await vscode.commands.executeCommand("claude-vscode.focus");
-      } catch {
-        throw new Error("Claude Code 확장을 찾지 못했어요. 설치되어 있는지 확인해 주세요.");
-      }
+    focus: () => {
+      const a = agent();
+      if (a.id === "codex") hintCodexNotify();
+      return agentCommand(a, "focus");
     },
     deliver: () => (engine ? engine.call("paste", identity()) : { ok: false, error: "음성 엔진이 꺼져 있어요" }),
   });
@@ -192,9 +232,10 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     if (!ownsTurn(turn.cwd, folders)) return;
     const md = turn.md;
     if (!md) return;
+    recentAgent = turn.agent;
     const receivedAt = Date.now();
     const lag = answerLag(turn.transcript, receivedAt);
-    log(`voice: answer arrived${lag != null ? ` ${lag} ms after Claude Code wrote it` : ""}${turn.question === undefined ? " (its question unknown)" : ""}`);
+    log(`voice: ${AGENTS[turn.agent].name} answer arrived${lag != null ? ` ${lag} ms after it was written` : ""}${turn.question === undefined ? " (its question unknown)" : ""}`);
     if (conv) conv.answerAt = receivedAt;
     if (conv && conv.onReply(md, turn)) return; // the answer to what was said
     if (!settings.get().readTyped || elsewhere()) return;
@@ -302,7 +343,11 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       settings,
       store,
       send,
-      newConversation: () => vscode.commands.executeCommand("claude-vscode.newConversation"),
+      newConversation: () => agentCommand(agent(), "newConversation"),
+      agent: () => {
+        const a = agent();
+        return { id: a.id, name: a.name };
+      },
       log: (m) => log(`voice: ${m}`),
     });
     conv.on("state", (st) => {
@@ -486,6 +531,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       epoch++;
       clearTimeout(readerTimer);
       animate(false);
+      for (const d of tabWatch) d.dispose();
       const c = conv;
       conv = null;
       if (c) c.stop();

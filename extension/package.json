@@ -86,6 +86,11 @@
         "command": "aglinkVoice.unenroll",
         "title": "내 목소리 등록 지우기",
         "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.installCodexNotify",
+        "title": "Codex 답 읽기 설정 (~/.codex/config.toml 의 notify)",
+        "category": "aglink 음성"
       }
     ],
     "keybindings": [
@@ -130,6 +135,22 @@
           ],
           "order": 0,
           "markdownDescription": "답을 읽어 줄 목소리예요. 남자 1~5번, 여자 1~5번. 대화 중에 \"여자 3번 목소리로 바꿔 줘\" 라고 말해도 돼요. [설정 화면](command:aglinkVoice.openSettings)에서 들어 보며 고를 수 있어요."
+        },
+        "aglinkVoice.target": {
+          "type": "string",
+          "default": "claude",
+          "enum": [
+            "claude",
+            "codex",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "Claude Code 에 보내요.",
+            "Codex(OpenAI) 에 보내요. 답을 읽으려면 명령 \"aglink 음성: Codex 답 읽기 설정\" 을 한 번 해 주세요.",
+            "자동: 마지막으로 앞에 띄웠거나 답한 쪽에 보내요. 모르면 Claude Code."
+          ],
+          "order": 0,
+          "markdownDescription": "말한 질문을 보낼 곳이에요: Claude Code, Codex, 또는 자동."
         },
         "aglinkVoice.speed": {
           "type": "number",

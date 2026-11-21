@@ -138,4 +138,4 @@ function hookAllowed({ remoteAddress = "", headers = {} }, tok) {
   return got === tok;
 }
 
-module.exports = { STANDALONE_PORT, DESKTOP_PORT, HOOK_MARK, HOOK_SCRIPT, HOOK_SCRIPT_PS, ensureStopHook, hookDir, ownsTurn, hookAllowed };
+module.exports = { STANDALONE_PORT, DESKTOP_PORT, HOOK_MARK, HOOK_SCRIPT, HOOK_SCRIPT_PS, ensureStopHook, hookDir, hasNode, ownsTurn, hookAllowed };
