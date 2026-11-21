@@ -14,6 +14,12 @@ voice, for people who do not run aglink.
 | `installer/` | the setup that puts engine, models and extension on a PC |
 | `docs/plan.md` | the plan and where it stands |
 
+Answers come from Claude Code's Stop hook (`extension/hook.js`) or, for
+Codex (`aglinkVoice.target`), a `notify` script (`extension/codexnotify.js`,
+set up by the command "Codex 답 읽기 설정"). Each is matched to the question
+it answers (`extension/core/turns.js`), so a late answer to an earlier
+question is not read. `extension/agents.js` holds the agents' command ids.
+
 ## Build and test
 
 ```powershell
