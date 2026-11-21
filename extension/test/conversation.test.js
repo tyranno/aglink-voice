@@ -710,3 +710,25 @@ test("the vocabulary: its words prompt recognition, replacements fix what was he
   assert.ok(engine.ops("transcribe").slice(1).every((c) => c.prompt === "Headscale, 두원."), "other clips get the words");
   conv.stop();
 });
+
+test("코덱스한테 …: that one question goes to Codex without its name, and Codex's answer is taken", async () => {
+  const { conv, engine, feed, until } = setup();
+  const sent = [];
+  conv.sendText = async (text, ctx) => {
+    sent.push({ text, ctx });
+    return { ok: true };
+  };
+  conv.agent = (id) => (id === "codex" ? { id: "codex", name: "Codex" } : { id: "claude", name: "Claude Code" });
+  await conv.start();
+  engine.text = "아글링크야, 코덱스한테 테스트 돌려 줘.";
+  await feed(0.001, 500);
+  await feed(0.2, 800);
+  await feed(0.001, 700);
+  await until(() => sent.length === 1, "the request");
+  assert.deepStrictEqual(sent, [{ text: "테스트 돌려 줘.", ctx: { agent: "codex" } }]);
+  assert.strictEqual(conv.onReply("클로드의 답", { agent: "claude" }), false);
+  assert.strictEqual(conv.onReply("테스트가 통과했어요.", { agent: "codex" }), true);
+  await conv.send("다음 질문이에요.");
+  assert.deepStrictEqual(sent[1], { text: "다음 질문이에요.", ctx: { agent: "claude" } }, "the next question follows the setting again");
+  conv.stop();
+});

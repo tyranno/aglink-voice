@@ -889,7 +889,10 @@ class Conversation extends EventEmitter {
       }
       // The snippets go in only now, on what is sent: their text may span
       // lines or hold "- " lists the checks above would take for dialogue.
-      await this.send(this.vocab.current().expand(text));
+      // "코덱스한테 …" sends this one question to that agent, whatever the
+      // aglinkVoice.target setting says.
+      const to = T.splitAddressee(text);
+      await this.send(this.vocab.current().expand(to ? to.text : text), to && to.agent);
     } catch (error) {
       this.log(`transcribe failed: ${error?.message || error}`);
       this.flash("음성 인식에 실패했어요");
@@ -919,8 +922,9 @@ class Conversation extends EventEmitter {
 
   // ---- Claude Code ----
 
-  async send(text) {
-    const agent = this.agent();
+  // agentId, when set, is the agent this question was said to by name.
+  async send(text, agentId = null) {
+    const agent = this.agent(agentId);
     this.log(`to ${agent.name} ${quote(text)}`);
     this.heard = text;
     this.textOnce = T.ONCE_TEXT_RE.test(text);
@@ -939,7 +943,7 @@ class Conversation extends EventEmitter {
     this.render();
     let res;
     try {
-      res = await this.sendText(text);
+      res = await this.sendText(text, { agent: agent.id });
     } catch (e) {
       res = { ok: false, error: e.message };
     }

@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { TTS_VOICES, voiceLabel, cleanWakeNames, MAX_WAKE_NAMES } = require("./core/text");
 
 const SECTION = "aglinkVoice";
-const KEYS = ["voice", "speed", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "echoCancel", "speakerMin", "micDevice", "outputDevice", "whisperServer", "micCleanup", "enginePath", "engineRoot"];
+const KEYS = ["voice", "speed", "target", "listenMode", "wakeDefault", "wakeNames", "stopDefault", "stopWords", "wakeIdleMin", "summary", "textOnly", "readTyped", "barge", "echoCancel", "speakerMin", "micDevice", "outputDevice", "whisperServer", "micCleanup", "enginePath", "engineRoot"];
 
 let panel = null;
 
@@ -153,6 +153,14 @@ function html(nonce) {
   </div>
   <p class="desc">1 이 보통 빠르기예요. 작을수록 천천히, 클수록 빨리 읽어요 (0.7~2배). "좀 더 천천히", "빨리 읽어 줘" 라고 말해도 돼요.</p>
 </div>
+
+<h2>보낼 곳</h2>
+<div class="row">
+  <label class="radio"><input type="radio" name="target" value="claude"><span><b>Claude Code</b><br><span class="desc">말한 내용을 Claude Code 입력칸에 넣어 보내요.</span></span></label>
+  <label class="radio"><input type="radio" name="target" value="codex"><span><b>Codex</b><br><span class="desc">말한 내용을 Codex 사이드바에 넣어 보내요. 답을 읽어 주려면 명령 "aglink 음성: Codex 답 읽기 설정"이 필요해요.</span></span></label>
+  <label class="radio"><input type="radio" name="target" value="auto"><span><b>자동</b><br><span class="desc">마지막으로 띄웠거나 답한 쪽으로 보내요. 처음에는 Claude Code예요.</span></span></label>
+</div>
+<p class="desc">여기서 고르지 않아도 "코덱스한테 …", "클로드한테 …" 처럼 앞에 붙여 말하면 그 말만 그쪽으로 보내요.</p>
 
 <h2>듣는 방식</h2>
 <div class="row">
@@ -303,7 +311,7 @@ function html(nonce) {
   $("wakeIdleMin").addEventListener("change", (e) => set("wakeIdleMin", Number(e.target.value)));
   $("micCleanup").addEventListener("change", (e) => set("micCleanup", e.target.value));
   for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge", "echoCancel"]) $(id).addEventListener("change", (e) => set(id, e.target.checked));
-  for (const name of ["listenMode"])
+  for (const name of ["listenMode", "target"])
     for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.addEventListener("change", (e) => e.target.checked && set(name, e.target.value));
   for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
   for (const id of ["toggle", "preview", "enroll", "unenroll", "native", "vocab", "pickMic", "pickOutput"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
@@ -319,7 +327,7 @@ function html(nonce) {
     $("wakeIdleMin").value = String(v.wakeIdleMin);
     $("micCleanup").value = v.micCleanup || "off";
     for (const id of ["wakeDefault", "stopDefault", "summary", "textOnly", "readTyped", "barge", "echoCancel"]) $(id).checked = !!v[id];
-    for (const name of ["listenMode"])
+    for (const name of ["listenMode", "target"])
       for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.checked = r.value === v[name];
     for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) {
       if (document.activeElement === $(id)) continue; // not under the cursor

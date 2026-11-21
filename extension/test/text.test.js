@@ -113,3 +113,20 @@ test("wakePrompt lists the wake names to prime recognition", () => {
   assert.strictEqual(T.wakePrompt({ wakeDefault: true, wakeNames: ["길동이"] }), "아글링크, 길동이");
   assert.strictEqual(T.wakePrompt({ wakeDefault: false, wakeNames: ["길동이"] }), "길동이");
 });
+
+test("splitAddressee: a question said to Codex or Claude by name goes to it, a mention does not", () => {
+  const cases = {
+    "코덱스한테 이 버그 고쳐 줘": { agent: "codex", text: "이 버그 고쳐 줘" },
+    "코덱스 한테, 테스트 돌려 봐": { agent: "codex", text: "테스트 돌려 봐" },
+    "코덱스야 빌드해 줘": { agent: "codex", text: "빌드해 줘" },
+    "Codex, run tests": { agent: "codex", text: "run tests" },
+    "클로드한테 커밋해 줘": { agent: "claude", text: "커밋해 줘" },
+    "클로드 코드에게 리뷰해 줘": { agent: "claude", text: "리뷰해 줘" },
+    "클로드야, 로그 봐 줘": { agent: "claude", text: "로그 봐 줘" },
+    "이 파일 정리해 줘 라고 코덱스한테 전해 줘": { agent: "codex", text: "이 파일 정리해 줘" },
+    "테스트 돌려 달라고 코덱스한테 말해 줘": { agent: "codex", text: "테스트 돌려 달라고" },
+  };
+  for (const [said, want] of Object.entries(cases)) assert.deepStrictEqual(T.splitAddressee(said), want, said);
+  for (const said of ["코덱스 설정 열어 줘", "코덱스는 어떻게 생각해", "코덱스로 바꿔 줘", "코덱스한테", "오늘 날씨 어때", ""])
+    assert.strictEqual(T.splitAddressee(said), null, said);
+});

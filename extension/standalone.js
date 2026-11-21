@@ -27,7 +27,7 @@ const { clipboardSender } = require("./core/clipsend");
 const { createVocab } = require("./core/vocab");
 const { turnFromHook } = require("./core/turns");
 const { AGENTS, pickAgent, agentOfTab } = require("./agents");
-const { NOTIFY_MARK, codexConfigPath } = require("./codexnotify");
+const { codexNotifyConfigured } = require("./codexnotify");
 const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
 const { STANDALONE_PORT, ensureStopHook, ownsTurn, hookAllowed } = require("./hook");
 const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
@@ -104,14 +104,10 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   // Codex's answers need our notify line in ~/.codex/config.toml, which is
   // only added on the user's click: the first send to Codex without it says so.
   let codexHinted = false;
-  function hintCodexNotify() {
+  async function hintCodexNotify() {
     if (codexHinted) return;
     codexHinted = true;
-    let toml = "";
-    try {
-      toml = fs.readFileSync(codexConfigPath(), "utf8");
-    } catch {}
-    if (toml.includes(NOTIFY_MARK)) return;
+    if (await codexNotifyConfigured(vscode)) return;
     log("voice: Codex notify is not set up — Codex's answers will not be read");
     void vscode.window.showInformationMessage("aglink 음성: Codex 의 답을 읽으려면 Codex 설정(config.toml)에 알림 줄이 필요해요.", "설정 보기").then((pick) => {
       if (pick) void vscode.commands.executeCommand("aglinkVoice.installCodexNotify");
@@ -131,8 +127,11 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   const send = clipboardSender({
     clipboard: vscode.env.clipboard,
     log,
-    focus: () => {
-      const a = agent();
+    focus: (ctx) => {
+      // A question said to one agent by name ("코덱스한테 …") goes there, and
+      // "auto" follows it for the next ones.
+      const a = ctx && AGENTS[ctx.agent] ? AGENTS[ctx.agent] : agent();
+      if (ctx && AGENTS[ctx.agent]) recentAgent = a.id;
       if (a.id === "codex") hintCodexNotify();
       return agentCommand(a, "focus");
     },
@@ -346,8 +345,8 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       store,
       send,
       newConversation: () => agentCommand(agent(), "newConversation"),
-      agent: () => {
-        const a = agent();
+      agent: (id) => {
+        const a = id && AGENTS[id] ? AGENTS[id] : agent();
         return { id: a.id, name: a.name };
       },
       log: (m) => log(`voice: ${m}`),

@@ -15,11 +15,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function clipboardSender({ clipboard, focus, deliver, log = () => {}, focusWaitMs = 250, restoreWaitMs = 800, wait = sleep }) {
   let chain = Promise.resolve();
 
-  async function once(text) {
+  // ctx is handed to focus() as is (the agent this send goes to).
+  async function once(text, ctx) {
     const old = await clipboard.readText();
     await clipboard.writeText(text);
     try {
-      await focus();
+      await focus(ctx);
     } catch (e) {
       return { ok: false, error: e.message };
     }
@@ -45,8 +46,8 @@ function clipboardSender({ clipboard, focus, deliver, log = () => {}, focusWaitM
     return { ok: true };
   }
 
-  return function send(text) {
-    const run = chain.then(() => once(text));
+  return function send(text, ctx) {
+    const run = chain.then(() => once(text, ctx));
     chain = run.catch(() => {});
     return run;
   };

@@ -123,3 +123,17 @@ test("clipsend: a focus that throws is reported, not thrown", async () => {
   });
   assert.deepEqual(await send("하나"), { ok: false, error: "no Claude Code" });
 });
+
+test("clipsend: the send's context reaches focus (the agent it goes to)", async () => {
+  const r = rig();
+  const seen = [];
+  const send = clipboardSender({
+    clipboard: r.clipboard,
+    focus: async (ctx) => { seen.push(ctx); },
+    deliver: async () => ({ ok: true }),
+    wait: async () => {},
+  });
+  await send("하나", { agent: "codex" });
+  await send("둘");
+  assert.deepStrictEqual(seen, [{ agent: "codex" }, undefined]);
+});
