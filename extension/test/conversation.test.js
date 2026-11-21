@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const { EventEmitter } = require("events");
-const { Conversation } = require("../core/conversation");
+const { Conversation, bargeOnset } = require("../core/conversation");
 const A = require("../core/audio");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -633,3 +633,47 @@ test("an answer from the other agent than the one asked is not taken", async () 
   conv.stop();
 });
 
+test("bargeOnset fires once after 250 ms of unbroken voiced sound above the floor", () => {
+  const hit = { vad: 0.9, level: 0.2, floor: 0.05 };
+  const st = {};
+  const got = [hit, hit, hit, hit, hit, hit].map((f) => bargeOnset(st, f));
+  assert.deepStrictEqual(got, [false, false, false, false, true, false], "the 5th 50 ms piece, then never again");
+
+  const broken = {};
+  const seq = [hit, hit, hit, { vad: 0.2, level: 0.2, floor: 0.05 }, hit, hit, hit, hit];
+  assert.deepStrictEqual(seq.map((f) => bargeOnset(broken, f)), [false, false, false, false, false, false, false, false], "a gap starts the count again");
+
+  const loudNoVoice = {};
+  for (let i = 0; i < 20; i++) assert.strictEqual(bargeOnset(loudNoVoice, { vad: 0.3, level: 0.5, floor: 0.05 }), false);
+  const voicedEcho = {};
+  for (let i = 0; i < 20; i++) assert.strictEqual(bargeOnset(voicedEcho, { vad: 0.95, level: 0.06, floor: 0.05 }), false, "not above the floor by the margin");
+});
+
+test("fast barge-in stops the reading at the onset and the clip goes on as an ordinary recording", () => {
+  for (const bargeFast of [true, false]) {
+    const { conv, engine } = setup({ settings: { listenMode: "always", barge: true, bargeFast } });
+    conv.on_ = true;
+    conv.conv = true;
+    conv.echoGain = 0.1;
+    conv.speaking = true;
+    const now = conv.now();
+    const rec = {
+      chunks: [], first: -1, loud: 0, speechSum: 0, lastSpeechAt: 0, firstSpeechAt: 0,
+      noise: 0.001, noiseN: 5, startedAt: now - 2000, learnedUntil: now - 1000, barge: true,
+      prefix: "", earlyFor: 0, checks: Promise.resolve(), stopped: false,
+    };
+    conv.rec = rec;
+    const x = new Float32Array(800).fill(0.2);
+    for (let i = 0; i < 5; i++) conv.recFrame(rec, x, 0.2, now + i * 50, 0.9);
+    if (!bargeFast) {
+      assert.strictEqual(conv.speaking, true, "off: the reading goes on");
+      continue;
+    }
+    assert.strictEqual(conv.speaking, false, "the reading stopped");
+    assert.ok(engine.ops("stop").length >= 1);
+    conv.recFrame(rec, x, 0.2, now + 300, 0.9);
+    assert.strictEqual(rec.barge, false, "now an ordinary recording");
+    assert.ok(rec.first >= 0, "the first words are kept");
+    assert.strictEqual(conv.phase, "listening");
+  }
+});

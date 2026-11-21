@@ -41,6 +41,11 @@ const BARGE_MAX_SEGMENT_MS = 3000;
 const BARGE_MIN_SPEECH_MS = 400;
 const BARGE_MIN_LOUD_CHUNKS = 8; // ~0.4 s above the echo floor
 const BARGE_PREROLL_CHUNKS = 14;
+// Fast barge-in: voiced (Silero) and well above the echo floor for this long
+// stops the reading at once, before any recognition.
+const BARGE_ONSET_VAD = 0.6;
+const BARGE_ONSET_MARGIN = 1.5;
+const BARGE_ONSET_MS = 250;
 const MAX_CLIP_MS = 60000;
 const LEAD_MAX_CHARS = 20; // the first piece read: short, so its synthesis starts the reading soon
 const LEAD_SILENCE_MS = 500; // silence before the first piece, so a suspended output (Bluetooth) wakes without eating the opening words
@@ -91,6 +96,23 @@ const ANSWER_WAIT_MS = 15 * 60000; // an answer never reported stops holding the
 const FLASH_MS = 2500;
 const SPEED_RANGE = [0.7, 2.0];
 const DEFAULT_SPEED = 0.98;
+
+// bargeOnset is the fast barge-in detector, fed one mic piece at a time: st
+// is its state ({ms, fired}), vad the piece's speech probability, level its
+// loudness and floor the level our own reading makes it to (the echo floor and
+// the room). True once, on the piece that completes BARGE_ONSET_MS of
+// unbroken voiced, loud-enough sound; a piece that is not resets the count.
+function bargeOnset(st, { vad, level, floor }, { frameMs = CHUNK_MS, vadMin = BARGE_ONSET_VAD, margin = BARGE_ONSET_MARGIN, holdMs = BARGE_ONSET_MS } = {}) {
+  if (st.fired) return false;
+  if (!(vad >= vadMin && level > floor * margin)) {
+    st.ms = 0;
+    return false;
+  }
+  st.ms = (st.ms || 0) + frameMs;
+  if (st.ms < holdMs) return false;
+  st.fired = true;
+  return true;
+}
 
 const quote = (text, n = 40) => {
   const s = String(text || "");
@@ -529,13 +551,19 @@ class Conversation extends EventEmitter {
     if (rec.barge && !this.speaking) {
       // The reading is over: from here on this is an ordinary recording. A
       // segment still open is mostly the reading itself, so it is checked
-      // like any other rather than carried over.
-      if (rec.first >= 0 && rec.lastSpeechAt - rec.firstSpeechAt >= BARGE_MIN_SPEECH_MS && rec.loud >= BARGE_MIN_LOUD_CHUNKS)
-        this.checkBargeSegment(rec, this.takeClip(rec), rec.speechSum / rec.loud);
-      this.resetSegment(rec);
+      // like any other rather than carried over. After a fast barge-in it is
+      // the user's first words: kept as the start of the clip, which then
+      // gets the usual voice and echo checks.
+      if (rec.fastCut && rec.first >= 0) {
+        this.hearing = true;
+      } else {
+        if (rec.first >= 0 && rec.lastSpeechAt - rec.firstSpeechAt >= BARGE_MIN_SPEECH_MS && rec.loud >= BARGE_MIN_LOUD_CHUNKS)
+          this.checkBargeSegment(rec, this.takeClip(rec), rec.speechSum / rec.loud);
+        this.resetSegment(rec);
+        this.hearing = false;
+      }
       rec.barge = false;
       rec.startedAt = now;
-      this.hearing = false;
       this.phase = "listening";
       this.render();
     }
@@ -568,6 +596,15 @@ class Conversation extends EventEmitter {
       rec.speechSum += level;
     }
     if (rec.barge) {
+      // Fast barge-in (needs the room's echo gain, or our own voice would
+      // pass): the reading stops at the onset; whether it was a question is
+      // left to the clip's checks once recorded.
+      if (this.speaking && this.echoGain !== null && this.s.bargeFast !== false && bargeOnset((rec.onset ||= {}), { vad, level, floor: threshold })) {
+        this.log(`barge-in: voice onset (vad ${vad.toFixed(2)}, level ${level.toFixed(3)}, floor ${threshold.toFixed(3)}) → reading stopped`);
+        rec.fastCut = true;
+        this.stopSpeaking();
+        return;
+      }
       // The reading rarely pauses long enough to end a segment, so one is also
       // cut after a few seconds.
       const ended = now - rec.lastSpeechAt > BARGE_SEGMENT_MS || now - rec.firstSpeechAt > BARGE_MAX_SEGMENT_MS;
@@ -1380,4 +1417,4 @@ class Conversation extends EventEmitter {
   }
 }
 
-module.exports = { Conversation, SPEED_RANGE, DEFAULT_SPEED };
+module.exports = { Conversation, bargeOnset, SPEED_RANGE, DEFAULT_SPEED };

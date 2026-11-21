@@ -28,7 +28,7 @@ const { STANDALONE_PORT, ensureStopHook, ownsTurn, hookAllowed } = require("./ho
 const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
 
 const SECTION = "aglinkVoice";
-const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge", "echoCancel", "micDevice", "outputDevice"];
+const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge", "bargeFast", "echoCancel", "micDevice", "outputDevice"];
 const READER_IDLE_MS = 10 * 60000;
 
 // enginePaths: where the setup put the engine (%LOCALAPPDATA%\aglink-voice),
