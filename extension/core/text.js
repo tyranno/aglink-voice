@@ -55,7 +55,7 @@ function normalizeForEcho(s) {
 // voice reading them in Hangul ("OpenVoice" → "오픈 보이스", "M2" → "엠투"),
 // so the echo check compares against how they are read aloud too.
 const READ_WORDS = {
-  openvoice: "오픈보이스", supertonic: "슈퍼토닉", whisper: "위스퍼", claude: "클로드", aglink: "에이지링크",
+  openvoice: "오픈보이스", supertonic: "슈퍼토닉", whisper: "위스퍼", claude: "클로드", codex: "코덱스", aglink: "에이지링크",
   windows: "윈도우", wav: "웨이브", ok: "오케이", okay: "오케이", go: "고", git: "깃", commit: "커밋",
   push: "푸시", build: "빌드", server: "서버", test: "테스트", log: "로그", app: "앱", mode: "모드",
 };
