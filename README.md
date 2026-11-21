@@ -20,6 +20,11 @@ set up by the command "Codex 답 읽기 설정"). Each is matched to the questio
 it answers (`extension/core/turns.js`), so a late answer to an earlier
 question is not read. `extension/agents.js` holds the agents' command ids.
 
+The personal vocabulary (`~/.aglink/voice-words.json`: prompt words,
+replacements, snippets) is shared with the aglink desktop app and read by
+`extension/core/vocab.js` with the same rules as its `desktop/vocab.go`.
+Command "단어장 열기" opens it (v0.5.27).
+
 ## Build and test
 
 ```powershell

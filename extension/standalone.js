@@ -24,6 +24,7 @@ const path = require("path");
 const { Engine } = require("./core/engine");
 const { Conversation } = require("./core/conversation");
 const { clipboardSender } = require("./core/clipsend");
+const { createVocab } = require("./core/vocab");
 const { turnFromHook } = require("./core/turns");
 const { AGENTS, pickAgent, agentOfTab } = require("./agents");
 const { NOTIFY_MARK, codexConfigPath } = require("./codexnotify");
@@ -349,6 +350,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
         return { id: a.id, name: a.name };
       },
       log: (m) => log(`voice: ${m}`),
+      vocab: createVocab({ log: (m) => log(`voice: ${m}`) }), // ~/.aglink/voice-words.json, shared with the desktop app
     });
     conv.on("state", (st) => {
       last = st;

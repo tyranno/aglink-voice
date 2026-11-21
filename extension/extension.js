@@ -16,6 +16,7 @@ const { openSettings } = require("./settingsPanel");
 const { TTS_VOICES, voiceLabel } = require("./core/text");
 const { installCodexNotify } = require("./codexnotify");
 const { hasNode } = require("./hook");
+const { ensureVocabFile } = require("./core/vocab");
 
 const SPEEDS = [0.8, 0.9, 0.98, 1.1, 1.2, 1.35, 1.5];
 
@@ -218,9 +219,24 @@ function activate(context) {
         { label: `$(debug-pause) 읽는 중에 말하면 멈추기: ${onOff(s.get("barge"))}`, run: () => set("barge", !s.get("barge")) },
       );
     }
-    items.push({ label: "", kind: vscode.QuickPickItemKind.Separator }, { label: "$(gear) 설정 화면 열기", description: "모든 설정과 설명", run: () => openSettings(vscode, settingsHost) });
+    items.push(
+      { label: "", kind: vscode.QuickPickItemKind.Separator },
+      { label: "$(book) 단어장 열기", description: "잘 알아듣게 할 단어 · 고쳐 쓸 말 · 스니펫", run: openVocab },
+      { label: "$(gear) 설정 화면 열기", description: "모든 설정과 설명", run: () => openSettings(vscode, settingsHost) },
+    );
     const pick = await vscode.window.showQuickPick(items, { title: "aglink 음성" });
     if (pick && pick.run) await pick.run();
+  }
+
+  // openVocab opens the personal vocabulary (~/.aglink/voice-words.json, the
+  // desktop app's too) in an editor, creating an empty one first.
+  async function openVocab() {
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(ensureVocabFile()));
+      await vscode.window.showTextDocument(doc);
+    } catch (e) {
+      vscode.window.showErrorMessage(`aglink 음성: 단어장을 열지 못했어요 (${e.message})`);
+    }
   }
 
   context.subscriptions.push(
@@ -242,6 +258,7 @@ function activate(context) {
     vscode.commands.registerCommand("aglinkVoice.enroll", settingsHost.enroll),
     vscode.commands.registerCommand("aglinkVoice.unenroll", settingsHost.unenroll),
     vscode.commands.registerCommand("aglinkVoice.preview", settingsHost.preview),
+    vscode.commands.registerCommand("aglinkVoice.openVocab", openVocab),
     vscode.commands.registerCommand("aglinkVoice.installCodexNotify", () => installCodexNotify(vscode, log, { node: hasNode() })),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("aglinkVoice")) render();

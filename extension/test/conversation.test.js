@@ -4,6 +4,7 @@ const assert = require("node:assert");
 const { EventEmitter } = require("events");
 const { Conversation, bargeOnset } = require("../core/conversation");
 const A = require("../core/audio");
+const V = require("../core/vocab");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tick = () => new Promise((r) => setImmediate(r));
@@ -46,7 +47,7 @@ function frame(amp) {
   return b.toString("base64");
 }
 
-function setup({ settings: over = {}, store: init = {} } = {}) {
+function setup({ settings: over = {}, store: init = {}, vocab } = {}) {
   let clock = 1_000_000;
   const engine = new FakeEngine();
   const values = { voice: "M2", speed: 0.98, speakerMin: 0.4, listenMode: "wake", wakeIdleMin: 3, summary: true, wakeNames: [], wakeDefault: true, textOnly: false, barge: false, ...over };
@@ -61,6 +62,7 @@ function setup({ settings: over = {}, store: init = {} } = {}) {
       return { ok: true };
     },
     now: () => clock,
+    ...(vocab ? { vocab } : {}),
   });
   // feed sends ms of mic audio, 50 ms at a time, letting the checks it starts
   // run. vad is the Silero speech probability the engine would attach to each
@@ -676,4 +678,35 @@ test("fast barge-in stops the reading at the onset and the clip goes on as an or
     assert.ok(rec.first >= 0, "the first words are kept");
     assert.strictEqual(conv.phase, "listening");
   }
+});
+
+test("the vocabulary: its words prompt recognition, replacements fix what was heard, a snippet goes out as its text", async () => {
+  const v = V.compile(
+    V.tidy({
+      words: ["Headscale", "두원"],
+      replace: [{ from: "에이지링크", to: "aglink" }],
+      snippets: [{ trigger: "서명 넣어", text: "감사합니다.\n- 두원 드림\n- 연구소" }],
+    }),
+  );
+  const { conv, engine, sent, feed, until } = setup({ vocab: { current: () => v } });
+  await conv.start();
+
+  engine.text = "아글링크야, 에이지 링크 버전 알려 줘.";
+  await feed(0.001, 500);
+  await feed(0.2, 800);
+  await feed(0.001, 700);
+  await until(() => sent.length === 1, "the request");
+  assert.deepStrictEqual(sent, ["aglink 버전 알려 줘."]);
+  assert.strictEqual(engine.ops("transcribe")[0].prompt, "아글링크", "the wake clip keeps the wake prompt");
+
+  assert.ok(conv.onReply("1.2 버전이에요."));
+  await until(() => !conv.speaking && conv.phase === "listening", "the mic after the reading");
+  engine.text = "서명 넣어.";
+  await feed(0.001, 500);
+  await feed(0.2, 800);
+  await feed(0.001, 2400);
+  await until(() => sent.length === 2, "the snippet");
+  assert.strictEqual(sent[1], "감사합니다.\n- 두원 드림\n- 연구소", "lines and the list kept, not taken for dialogue");
+  assert.ok(engine.ops("transcribe").slice(1).every((c) => c.prompt === "Headscale, 두원."), "other clips get the words");
+  conv.stop();
 });

@@ -69,6 +69,9 @@ function openSettings(vscode, host) {
           case "pickOutput":
             await host.pickOutput();
             break;
+          case "vocab":
+            await vscode.commands.executeCommand("aglinkVoice.openVocab");
+            break;
           case "native":
             await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:aglink.aglink-voice");
             break;
@@ -281,6 +284,8 @@ function html(nonce) {
   <tr><td>부르는 이름을 자비스로 바꿔 줘</td><td>호출어</td></tr>
   <tr><td>목소리 등록해 줘 / 목소리 등록 해제해 줘</td><td>내 목소리</td></tr>
 </table>
+<h2>단어장</h2>
+<p class="desc">받아쓰기가 자주 틀리는 이름·용어("words"), 받아 적은 뒤 고쳐 쓸 말("replace": 띄어쓰기·영문 대소문자는 가리지 않아요), 말하면 적어 둔 글로 바뀌는 스니펫("snippets")을 적어 두는 파일이에요. aglink 데스크톱 앱과 같은 파일(~/.aglink/voice-words.json)을 쓰고, 저장하면 다음 말부터 쓰여요. <a id="vocab">단어장 열기</a></p>
 <p class="desc"><a id="native">VS Code 기본 설정 화면에서 보기</a></p>
 
 <script nonce="${nonce}">
@@ -301,7 +306,7 @@ function html(nonce) {
   for (const name of ["listenMode"])
     for (const r of document.querySelectorAll('input[name="' + name + '"]')) r.addEventListener("change", (e) => e.target.checked && set(name, e.target.value));
   for (const id of ["wakeNames", "stopWords", "enginePath", "engineRoot", "whisperServer"]) $(id).addEventListener("change", (e) => set(id, e.target.value));
-  for (const id of ["toggle", "preview", "enroll", "unenroll", "native", "pickMic", "pickOutput"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
+  for (const id of ["toggle", "preview", "enroll", "unenroll", "native", "vocab", "pickMic", "pickOutput"]) $(id).addEventListener("click", () => vscode.postMessage({ type: id }));
 
   window.addEventListener("message", ({ data: m }) => {
     if (m.type !== "state") return;

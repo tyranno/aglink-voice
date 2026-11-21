@@ -23,6 +23,7 @@ const T = require("./text");
 const A = require("./audio");
 const { speakNumbers } = require("./numbers");
 const { sameQuestion } = require("./turns");
+const V = require("./vocab");
 
 const CHUNK_MS = 50; // the engine's mic pieces
 const CONV_SILENCE_STOP_MS = 2200; // room for "음…" mid-sentence pauses
@@ -127,7 +128,7 @@ class Conversation extends EventEmitter {
   //   voice, the user's level, the room's echo gain), kept across restarts.
   // send(text) → Promise<{ok, error}>: hands the words to Claude Code.
   // agent() → {id, name}: who send() goes to (Claude Code or Codex).
-  constructor({ engine, settings, store, send, newConversation = async () => {}, agent = () => ({ id: "claude", name: "Claude Code" }), log = () => {}, now = Date.now }) {
+  constructor({ engine, settings, store, send, newConversation = async () => {}, agent = () => ({ id: "claude", name: "Claude Code" }), log = () => {}, now = Date.now, vocab = V.noVocab }) {
     super();
     this.engine = engine;
     this.settings = settings;
@@ -137,6 +138,7 @@ class Conversation extends EventEmitter {
     this.agent = agent;
     this.log = log;
     this.now = now;
+    this.vocab = vocab; // the personal vocabulary (core/vocab.js): {current()}
 
     this.on_ = false; // voice is on
     this.paused = false; // "인식 멈춰": listening, but only "다시 인식해" / "마이크 꺼" act
@@ -443,10 +445,19 @@ class Conversation extends EventEmitter {
 
   // transcribe recognises a clip turned up to a steady loudness first (quiet
   // headset mics are heard much worse); the voice check uses the clip as it is.
+  // prompt is the wake clip's (the wake names), taken as heard; any other clip
+  // gets the vocabulary's words as its prompt and its replacements after.
   async transcribe(wav, prompt = "") {
+    const vocab = prompt ? null : this.vocab.current();
     const args = { wav: A.loudForSpeech(wav).toString("base64") };
-    if (prompt) args.prompt = prompt; // an initial prompt biases Whisper toward these words (used for the wake name)
-    return String((await this.engine.call("transcribe", args)).text || "").trim();
+    if (prompt || vocab.prompt) args.prompt = prompt || vocab.prompt; // an initial prompt biases Whisper toward these words
+    const text = String((await this.engine.call("transcribe", args)).text || "").trim();
+    if (!vocab) return text;
+    if (vocab.prompt && V.isPromptEcho(text, vocab.promptWords)) {
+      this.log(`prompt read back dropped ${quote(text, 20)}`);
+      return "";
+    }
+    return vocab.fix(text);
   }
 
   // speechFloor is the lowest level that counts as speech. Fixed at
@@ -876,7 +887,9 @@ class Conversation extends EventEmitter {
         relisten = true;
         return;
       }
-      await this.send(text);
+      // The snippets go in only now, on what is sent: their text may span
+      // lines or hold "- " lists the checks above would take for dialogue.
+      await this.send(this.vocab.current().expand(text));
     } catch (error) {
       this.log(`transcribe failed: ${error?.message || error}`);
       this.flash("음성 인식에 실패했어요");
@@ -1046,7 +1059,7 @@ class Conversation extends EventEmitter {
         this.log(`wake: not the name ${quote(text, 20)}`);
         return;
       }
-      const rest = text.slice(end).replace(T.WAKE_TAIL_RE, "").trim();
+      const rest = this.vocab.current().fix(text.slice(end).replace(T.WAKE_TAIL_RE, "").trim()); // the wake clip skipped the replacements
       this.log(`wake ${score >= 0 ? `${score.toFixed(2)} ` : ""}${quote(text)}`);
       // Called again while a reply is still awaited: the user gave up on it
       // (an interrupted Claude Code turn never answers). Drop the stale wait —
