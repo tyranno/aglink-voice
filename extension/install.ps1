@@ -40,7 +40,7 @@ $version = $pkg.version
 # Every core module ships: a hand-kept list missed core/numbers.js in 0.5.2
 # and the extension failed to load.
 $core = Get-ChildItem (Join-Path $here 'core') -Filter *.js | ForEach-Object { 'core/' + $_.Name }
-$files = @('package.json', 'extension.js', 'desktoplink.js', 'standalone.js', 'settingsPanel.js', 'hook.js', 'agents.js', 'codexnotify.js', 'README.md', 'media/aglink-icons.woff') + $core
+$files = @('package.json', 'extension.js', 'standalone.js', 'settingsPanel.js', 'hook.js', 'agents.js', 'codexnotify.js', 'README.md', 'media/aglink-icons.woff', 'media/walkthrough.md') + $core
 
 $out = Join-Path $here "$($pkg.name)-$version.vsix"
 if (Test-Path $out) { Remove-Item $out -Force }

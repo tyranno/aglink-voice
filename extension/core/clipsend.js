@@ -1,10 +1,10 @@
 // clipboardSender hands spoken words to Claude Code the only way there is:
 // they go on the clipboard, Claude Code's input box takes the focus, and
-// something (the engine, or the desktop app) presses Ctrl+V, Enter. The
+// the engine presses Ctrl+V, Enter. The
 // clipboard is then given back — but only if it still holds our words: what
 // the user copied meanwhile is left alone. Sends run one at a time, so a
 // second one waits for the first's restore and never takes its words for the
-// user's clipboard. Used by standalone.js and desktoplink.js.
+// user's clipboard. Used by standalone.js.
 "use strict";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -47,7 +47,7 @@ function frame(amp) {
   return b.toString("base64");
 }
 
-function setup({ settings: over = {}, store: init = {}, vocab } = {}) {
+function setup({ settings: over = {}, store: init = {}, vocab, copy, ide } = {}) {
   let clock = 1_000_000;
   const engine = new FakeEngine();
   const values = { voice: "M2", speed: 0.98, speakerMin: 0.4, listenMode: "wake", wakeIdleMin: 3, summary: true, wakeNames: [], wakeDefault: true, textOnly: false, barge: false, ...over };
@@ -63,6 +63,8 @@ function setup({ settings: over = {}, store: init = {}, vocab } = {}) {
     },
     now: () => clock,
     ...(vocab ? { vocab } : {}),
+    ...(copy ? { copy } : {}),
+    ...(ide ? { ide } : {}),
   });
   // feed sends ms of mic audio, 50 ms at a time, letting the checks it starts
   // run. vad is the Silero speech probability the engine would attach to each
@@ -741,5 +743,242 @@ test("a send whose answer cannot come back (Codex without our notify) does not h
   assert.strictEqual(conv.awaiting, null, "not waiting for an answer");
   assert.strictEqual(conv.heard, "");
   assert.notStrictEqual(conv.state().phase, "waiting");
+  conv.stop();
+});
+
+// say: one spoken sentence in the conversation, heard to its end.
+async function sayIt(t, text) {
+  t.engine.text = text;
+  await t.feed(0.001, 500);
+  await t.feed(0.2, 900);
+  await t.feed(0.001, 2400);
+}
+
+test("복사해 줘 puts the last answer on the clipboard; with none yet it says so", async () => {
+  const copied = [];
+  const t = setup({ settings: { listenMode: "always" }, copy: async (s) => copied.push(s) });
+  const { conv, engine, sent, until } = t;
+  await conv.start();
+  await sayIt(t, "복사해 줘");
+  await until(() => engine.ops("tts").some((c) => /복사할 답변이 없어요/.test(c.text)), "nothing to copy");
+  assert.deepStrictEqual(copied, []);
+
+  await until(() => !conv.speaking && conv.phase === "listening", "the mic");
+  await sayIt(t, "오늘 할 일 정리해 줘.");
+  await until(() => sent.length === 1, "the request");
+  assert.ok(conv.onReply("할 일을 정리했어요.\n\n- 보고서"));
+  await until(() => !conv.speaking && conv.phase === "listening", "the mic after the reading");
+  await sayIt(t, "방금 답 복사해 줘");
+  await until(() => copied.length === 1, "the copy");
+  assert.strictEqual(copied[0], "할 일을 정리했어요.\n\n- 보고서");
+  assert.strictEqual(sent.length, 1, "the command is not sent");
+  conv.stop();
+});
+
+test("다시 보내 줘 sends the last request once more and waits for its answer", async () => {
+  const t = setup({ settings: { listenMode: "always" } });
+  const { conv, sent, until } = t;
+  await conv.start();
+  await sayIt(t, "테스트 돌려 줘.");
+  await until(() => sent.length === 1, "the request");
+  assert.ok(conv.stopWaiting());
+  await until(() => conv.phase === "listening", "the mic");
+  await sayIt(t, "다시 보내 줘");
+  await until(() => sent.length === 2, "the resend");
+  assert.deepStrictEqual(sent, ["테스트 돌려 줘.", "테스트 돌려 줘."]);
+  assert.ok(conv.awaiting, "waits for the answer");
+  assert.ok(conv.onReply("다 통과했어요."), "the answer to the resent request is taken");
+  conv.stop();
+});
+
+test("resend() from the wake word wait opens the conversation; it refuses while voice is off", async () => {
+  const { conv, sent } = setup();
+  assert.strictEqual(await conv.resend("빌드해 줘"), false);
+  await conv.start();
+  assert.strictEqual(conv.conv, false);
+  assert.strictEqual(await conv.resend("빌드해 줘"), true);
+  assert.ok(conv.conv, "in conversation, so the answer is read");
+  assert.deepStrictEqual(sent, ["빌드해 줘"]);
+  assert.ok(conv.awaiting);
+  conv.stop();
+});
+
+test("말 명령 알려 줘 asks for the help list", async () => {
+  const t = setup({ settings: { listenMode: "always" } });
+  const { conv, sent, until } = t;
+  let asked = 0;
+  conv.on("help", () => asked++);
+  await conv.start();
+  await sayIt(t, "말 명령 알려 줘");
+  await until(() => asked === 1, "the help event");
+  assert.deepStrictEqual(sent, []);
+  conv.stop();
+});
+
+test("a reading of several pieces shows which piece plays; one piece shows no count", async () => {
+  const { conv, engine } = setup({ settings: { listenMode: "always" } });
+  const labels = [];
+  conv.on("state", (st) => st.phase === "speaking" && labels.push(st.label));
+  await conv.start();
+  await conv.speak("첫 문장이에요. 두 번째 문장이에요. 세 번째 문장이에요.", "full");
+  // splitSentences keeps the first sentence alone and joins the rest: two pieces
+  assert.ok(labels.includes("답변을 읽는 중 (1/2)"), labels.join(" | "));
+  assert.ok(labels.includes("답변을 읽는 중 (2/2)"), labels.join(" | "));
+  assert.strictEqual(conv.readPos, null, "cleared after the reading");
+  labels.length = 0;
+  await conv.speak("한 문장.", "full");
+  assert.ok(labels.length && labels.every((l) => l === "답변을 읽는 중"), labels.join(" | "));
+  assert.strictEqual(engine.ops("play").length, 3);
+  conv.stop();
+});
+
+test("a mic that cannot be opened is reported: on start (tagged) and on a new pick (event)", async () => {
+  const { conv, engine } = setup();
+  const failed = [];
+  conv.on("micFailed", (m) => failed.push(m));
+  const call = engine.call.bind(engine);
+  engine.call = async (op, args) => {
+    if (op === "mic" && args && args.on) throw new Error("access denied");
+    return call(op, args);
+  };
+  await assert.rejects(conv.start(), (e) => e.micFailed === true && /access denied/.test(e.message));
+  conv.stop();
+  engine.call = call;
+  await conv.start();
+  engine.call = async (op, args) => {
+    if (op === "mic" && args && args.on) throw new Error("no device");
+    return call(op, args);
+  };
+  await conv.micDeviceChanged();
+  assert.deepStrictEqual(failed, ["no device"]);
+  assert.match(conv.state().label, /마이크를 열 수 없어요/);
+  conv.stop();
+});
+
+test("받아 적어 줘: what is said goes to the editor, not the AI, until 받아 적기 끝", async () => {
+  const typed = [];
+  const t = setup({ settings: { listenMode: "always" }, ide: { insert: async (s) => typed.push(s) > 0 } });
+  const { conv, sent, until } = t;
+  await conv.start();
+  await sayIt(t, "받아 적어 줘");
+  await until(() => conv.dictating, "dictation on");
+  await until(() => !conv.speaking && conv.phase === "listening", "the mic");
+  assert.match(conv.state().label, /받아 적는 중/);
+  await sayIt(t, "오늘 회의는 세 시에 합니다.");
+  await until(() => typed.length === 1, "the words written");
+  assert.deepStrictEqual(typed, ["오늘 회의는 세 시에 합니다."]);
+  await until(() => conv.phase === "listening", "the mic again");
+  await sayIt(t, "받아 적기 끝");
+  await until(() => !conv.dictating, "dictation off");
+  assert.strictEqual(typed.length, 1, "the end words are not written");
+  assert.deepStrictEqual(sent, [], "nothing went to the AI");
+  conv.stop();
+});
+
+test("while dictating 그만 still ends the conversation, and dictation with it", async () => {
+  const typed = [];
+  const t = setup({ ide: { insert: async (s) => typed.push(s) > 0 } });
+  const { conv, until } = t;
+  await conv.start();
+  assert.ok(conv.setDictation(true));
+  assert.ok(conv.conv, "a click opens the conversation");
+  await sayIt(t, "그만");
+  await until(() => !conv.conv, "the end of the conversation");
+  assert.strictEqual(conv.dictating, false);
+  assert.deepStrictEqual(typed, []);
+  conv.stop();
+});
+
+test("dictation with no editor to write in ends itself and says so", async () => {
+  const t = setup({ settings: { listenMode: "always" } });
+  const { conv, engine, until } = t;
+  await conv.start();
+  conv.setDictation(true);
+  await sayIt(t, "안녕하세요.");
+  await until(() => !conv.dictating, "dictation off");
+  await until(() => engine.ops("tts").some((c) => /적을 편집기가 없어서/.test(c.text)), "the reason");
+  conv.stop();
+});
+
+test("이 파일 보고 …: the editor's context goes along with the words as said", async () => {
+  const asked = [];
+  const attach = async (k) => {
+    asked.push(k);
+    return k === "file" ? "(참고: a.js)" : "";
+  };
+  const t = setup({ settings: { listenMode: "always" }, ide: { attach } });
+  const { conv, sent, until } = t;
+  await conv.start();
+  await sayIt(t, "이 파일 보고 이 함수 설명해 줘.");
+  await until(() => sent.length === 1, "the request");
+  assert.deepStrictEqual(sent, ["이 파일 보고 이 함수 설명해 줘.\n\n(참고: a.js)"]);
+  assert.ok(conv.stopWaiting());
+  await until(() => conv.phase === "listening", "the mic");
+  await sayIt(t, "에러 보고 고쳐 줘.");
+  await until(() => sent.length === 2, "the second request");
+  assert.strictEqual(sent[1], "에러 보고 고쳐 줘.", "no problems: sent as said");
+  assert.deepStrictEqual(asked, ["file", "errors"]);
+  conv.stop();
+});
+
+test("이거 읽어 줘 reads the editor's text; 아까 답 reads the answer before the last", async () => {
+  const t = setup({ settings: { listenMode: "always", textOnly: true }, ide: { readable: async () => "선택한 문장이에요." } });
+  const { conv, engine, until } = t;
+  await conv.start();
+  await sayIt(t, "이거 읽어 줘");
+  await until(() => engine.ops("tts").some((c) => /선택한 문장이에요/.test(c.text)), "the selection read, even with text only");
+  await until(() => !conv.speaking, "the reading done");
+  const values = t.values;
+  values.textOnly = false;
+  conv.speakReply("첫 번째 답이에요.");
+  conv.speakReply("두 번째 답이에요.");
+  await until(() => !conv.speaking && conv.phase === "listening", "the mic");
+  await sayIt(t, "아까 답 다시 읽어 줘");
+  await until(() => engine.ops("tts").filter((c) => /첫 번째 답이에요/.test(c.text)).length >= 1 && !conv.speaking, "the earlier answer");
+  const last = engine.ops("tts").pop();
+  assert.match(last.text, /첫 번째 답이에요/);
+  conv.stop();
+});
+
+test("더 크게 / 작게 changes the volume within its range, and the reading is scaled", async () => {
+  const t = setup({ settings: { listenMode: "always" } });
+  const { conv, engine, values, until } = t;
+  await conv.start();
+  await sayIt(t, "좀 더 크게 읽어 줘");
+  await until(() => values.volume === 1.2, "louder");
+  await until(() => engine.ops("play").length > 0 && !conv.speaking, "the confirmation");
+  const played = Buffer.from(engine.ops("play").pop().wav, "base64");
+  const tts = A.encodeWav(new Float32Array(1600).fill(0.05));
+  assert.ok(Math.abs(played.readInt16LE(played.length - 2)) > Math.abs(tts.readInt16LE(tts.length - 2)), "played louder than synthesized");
+  values.volume = 0.2;
+  await until(() => conv.phase === "listening", "the mic");
+  await sayIt(t, "소리 작게 해 줘");
+  await until(() => engine.ops("tts").some((c) => /가장 작은 소리/.test(c.text)), "at the bottom");
+  assert.strictEqual(values.volume, 0.2);
+  conv.stop();
+});
+
+test("저장해 줘 / 파일 열어: the editor does it and the status bar says so, nothing is sent", async () => {
+  const done = [];
+  const ide = {
+    action: async (a) => {
+      done.push(a);
+      return "💾 a.js 저장했어요";
+    },
+    openFile: async (n) => {
+      done.push(`open ${n}`);
+      return "📂 README.md 열었어요";
+    },
+  };
+  const t = setup({ settings: { listenMode: "always" }, ide });
+  const { conv, sent, until } = t;
+  await conv.start();
+  await sayIt(t, "저장해 줘");
+  await until(() => /저장했어요/.test(conv.flashText), "the save shown");
+  await until(() => conv.phase === "listening" && !conv.speaking, "the mic");
+  await sayIt(t, "README 파일 열어 줘");
+  await until(() => /열었어요/.test(conv.flashText), "the open shown");
+  assert.deepStrictEqual(done, ["save", "open README"]);
+  assert.deepStrictEqual(sent, []);
   conv.stop();
 });

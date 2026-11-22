@@ -99,6 +99,16 @@ function prependSilence(wav, ms) {
   return encodeWav(out, rate);
 }
 
+// scaleWav plays a 16-bit PCM WAV louder or softer by gain (aglinkVoice.volume),
+// clipped at full scale. Anything it cannot read is returned as it is.
+function scaleWav(wav, gain) {
+  if (!wav || wav.length <= 44 || !(gain > 0) || gain === 1) return wav;
+  if (wav.toString("ascii", 0, 4) !== "RIFF" || wav.readUInt16LE(20) !== 1 || wav.readUInt16LE(34) !== 16 || wav.toString("ascii", 36, 40) !== "data") return wav;
+  const out = Buffer.from(wav);
+  for (let off = 44; off + 1 < out.length; off += 2) out.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(out.readInt16LE(off) * gain))), off);
+  return out;
+}
+
 // wavEnvelope: the RMS of each REF_FRAME_MS of a 16-bit or float PCM WAV.
 function wavEnvelope(bytes) {
   try {
@@ -183,4 +193,4 @@ function wavSlice(wav, from, to) {
   return out;
 }
 
-module.exports = { RATE, REF_FRAME_MS, pcmToFloat, rms, concat, encodeWav, loudForSpeech, clipSeconds, prependSilence, wavSlice, wavEnvelope, chimeWav, normalize, cosine };
+module.exports = { RATE, REF_FRAME_MS, pcmToFloat, rms, concat, encodeWav, loudForSpeech, clipSeconds, prependSilence, scaleWav, wavSlice, wavEnvelope, chimeWav, normalize, cosine };

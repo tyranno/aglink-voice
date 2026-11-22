@@ -158,6 +158,35 @@ const MIC_OFF_RE = /^(마이크|음성)\s*(을|를|좀)?\s*(꺼|꺼\s*줘|꺼\s*
 
 const ENROLL_RE = cmdRE(String.raw`(제\s*|내\s*)?목소리\s*(로|를|좀)?\s*(좀\s*)?(등록|저장|기억)\s*(해|하자|해\s*둬|해\s*놔|할래)?`);
 const UNENROLL_RE = cmdRE(String.raw`(제\s*|내\s*|등록한\s*|등록된\s*)?목소리\s*(등록\s*)?(을|를|은)?\s*(좀\s*)?(해제|취소|지워|삭제|지우기|없애)\s*(해|하자)?`);
+// "방금 답 복사해 줘": the last answer (as written, markdown) goes on the clipboard.
+// Only the answer itself or nothing may be named: "이 코드 복사해 줘" is a request.
+const COPY_RE = cmdRE(String.raw`((방금|마지막|지금)\s*)?((거|것|답|답변|대답|그거)\s*(을|를|좀)?\s*)?(클립보드\s*(에|로)\s*)?(복사|카피)\s*(해|하자|해\s*둬|해\s*놔)?`);
+// "다시 보내 줘": the last request said is sent again (it may not have gone through).
+const RESEND_RE = cmdRE(String.raw`((방금|마지막)\s*(거|것|말|질문|요청)\s*(을|를|좀)?\s*)?(다시|한\s*번\s*더)\s*(보내|전송해|물어\s*봐)`);
+// "말 명령 알려 줘": the list of these commands shows on screen.
+const HELP_RE = cmdRE(String.raw`((말|음성)\s*)?(명령|명령어)\s*(을|를|은|이)?\s*(뭐\s*있어|목록\s*(보여|알려)?|도움말|보여|알려)|무슨\s*말\s*(을\s*)?(할\s*수\s*있어|하면\s*돼)`);
+// "이거 읽어 줘": the editor's selection (or what is on screen) read aloud.
+const READ_EDITOR_RE = cmdRE(String.raw`(이거|이것|여기|이\s*부분|선택한\s*(거|것|부분|글|코드)?|고른\s*(거|것|부분)|화면|화면에\s*(있는|보이는)\s*(거|것|글))\s*(을|를|좀)?\s*(좀\s*)?(소리\s*내서\s*)?(읽어|들려)`);
+// "아까 답 다시 읽어 줘": the answer before the last one.
+const PREV_READ_RE = cmdRE(String.raw`(아까|그\s*전|그\s*전에|이전|전)\s*(에\s*)?(거|것|답|답변|대답)\s*(을|를|좀)?\s*(다시\s*)?(읽어|말해|들려)`);
+// "받아 적어 줘": what is said goes into the editor at the cursor until
+// "받아 적기 끝" (DICTATE_END_RE). "받아쓰기 멈춰" is still PAUSE_RE.
+const DICTATE_RE = cmdRE(String.raw`((에디터|편집기|파일|여기|커서)\s*(에|에다)?\s*)?(받아\s*적어|받아\s*적기\s*(시작|시작해|해)|받아쓰기\s*(시작|시작해|모드)|받아쓰기\s*해|그대로\s*(적어|써))`);
+const DICTATE_END_RE = /^\s*(받아\s*적기\s*(끝|그만|종료|멈춰)\S*|받아쓰기\s*(끝|종료)\S*|그만\s*적어|다\s*적었어|적기\s*(끝|그만))\s*(줘|주세요|요)?[.!?~\s]*$/;
+// Editor actions said in a word, a small fixed set (VOICE_ACTIONS): only the
+// whole sentence counts, so "저장하는 법 알려 줘" still goes to the AI.
+const SAVE_ALL_RE = cmdRE(String.raw`(파일\s*)?(모두|전부|다)\s*(저장|세이브)\s*(해|하자)?`);
+const SAVE_RE = cmdRE(String.raw`(이\s*|지금\s*)?(파일\s*)?(을|를)?\s*(저장|세이브)\s*(해|하자)?`);
+const TERMINAL_RE = cmdRE(String.raw`터미널\s*(을|를|좀)?\s*(열어|띄워|보여|켜)`);
+// "앱 점 js 파일 열어 줘", "README 파일 열어": a file of the workspace by its name.
+const OPEN_FILE_RE = /^\s*(.{1,30}?)\s*파일\s*(을|를|좀)?\s*(좀\s*)?(열어|띄워|보여)\s*(줘|주세요|줄래|봐)?[.!?~\s]*$/;
+const NOT_A_FILE_NAME_RE = /^(이|그|저|지금|방금|아까|새|다른|열린|그\s*다음|이\s*번|설정)$/;
+// Volume: "좀 더 크게 읽어 줘", "소리 작게 해 줘", "볼륨 올려 줘".
+const MORE = String.raw`((조금|좀|더|조금\s*더|좀\s*더)\s*)?`;
+const SOUND = String.raw`(소리|목소리|볼륨|음량)\s*(를|을|좀)?\s*`;
+const LOUDER_RE = cmdRE(String.raw`${MORE}크게\s*(읽어|말해|얘기해)|${MORE}${SOUND}${MORE}(크게\s*(해|읽어|말해)|키워|올려)`);
+const QUIETER_RE = cmdRE(String.raw`${MORE}작게\s*(읽어|말해|얘기해)|${MORE}${SOUND}${MORE}(작게\s*(해|읽어|말해)|줄여|낮춰|내려)`);
+const VOLUME_STEP = 0.2;
 const MAX_COMMAND_CHARS = 40; // longer sentences are always meant for the AI
 const SPEED_STEP = 0.1; // "더 천천히" / "더 빨리"
 
@@ -472,6 +501,8 @@ function parseCommand(text, current = "M2") {
     const set = WAKE_NAME_SET_RE.test(t);
     return { kind: "wakeName", set, name: cleanWakeNames([set ? named[2] : named[1]])[0] || "" };
   }
+  if (DICTATE_END_RE.test(t)) return { kind: "dictate", on: false };
+  if (DICTATE_RE.test(t)) return { kind: "dictate", on: true };
   // Before the reading's "멈춰" (hush): "인식 멈춰" pauses listening instead.
   if (PAUSE_RE.test(t)) return { kind: "pause" };
   if (RESUME_RE.test(t)) return { kind: "resume" };
@@ -487,13 +518,69 @@ function parseCommand(text, current = "M2") {
   if (BARGE_ON_RE.test(t)) return { kind: "barge", on: true };
   if (BARGE_OFF_RE.test(t)) return { kind: "barge", on: false };
   if (BARGE_HUSH_RE.test(t)) return { kind: "hush" };
+  if (PREV_READ_RE.test(t)) return { kind: "read", mode: "", which: "previous" };
   if (REPEAT_RE.test(t)) return { kind: "read", mode: "" };
+  if (READ_EDITOR_RE.test(t)) return { kind: "readEditor" };
+  if (LOUDER_RE.test(t)) return { kind: "volume", delta: VOLUME_STEP };
+  if (QUIETER_RE.test(t)) return { kind: "volume", delta: -VOLUME_STEP };
+  if (SAVE_ALL_RE.test(t)) return { kind: "action", action: "saveAll" };
+  if (SAVE_RE.test(t)) return { kind: "action", action: "save" };
+  if (TERMINAL_RE.test(t)) return { kind: "action", action: "terminal" };
   if (SLOWER_RE.test(t)) return { kind: "speed", delta: -SPEED_STEP };
   if (FASTER_RE.test(t)) return { kind: "speed", delta: SPEED_STEP };
   if (SPEED_RESET_RE.test(t)) return { kind: "speed", delta: null };
   if (NEW_CONV_RE.test(t)) return { kind: "newConversation" };
+  if (COPY_RE.test(t)) return { kind: "copy" };
+  if (RESEND_RE.test(t)) return { kind: "resend" };
+  if (HELP_RE.test(t)) return { kind: "help" };
   const vc = VOICE_CHANGE_RE.exec(t);
   if (vc && isVoiceChoice(vc[2] ?? vc[5])) return { kind: "voice", name: parseVoiceName(t, current) };
+  const f = OPEN_FILE_RE.exec(t);
+  if (f) {
+    const name = f[1].replace(/\s*(이라는|라는|이란|란)$/, "").trim();
+    if (name && !NOT_A_FILE_NAME_RE.test(name)) return { kind: "openFile", name };
+  }
+  return null;
+}
+
+// spokenFileName turns a file name as said ("앱 점 js", "README 점 엠디") into
+// the letters to look for: lower case, "점"/"닷" as ".", spaces left out.
+function spokenFileName(name) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/\s*(점|닷)\s*/g, ".")
+    .replace(/[\s"“”'`]/g, "");
+}
+
+// fileNameScore says how well a file's base name fits what was said: 3 the
+// whole name, 2 the name without its extension, 1 a part of it, 0 not at all.
+// The base name is also tried as it is read aloud ("readme" → "리드미" is not
+// known, but "test" → "테스트" is), for names said in Hangul.
+function fileNameScore(said, base) {
+  const want = spokenFileName(said);
+  if (!want) return 0;
+  const b = String(base || "").toLowerCase();
+  const stem = b.replace(/\.[^.]+$/, "");
+  const squash = (s) => s.replace(/[\s._-]/g, "");
+  const spoken = squash(readAloud(stem));
+  if (b === want) return 3;
+  if (stem === want || squash(stem) === squash(want) || (spoken && spoken === squash(want))) return 2;
+  if (want.length >= 2 && (b.includes(want) || squash(b).includes(squash(want)) || (spoken && spoken.includes(squash(want))))) return 1;
+  return 0;
+}
+
+// splitContext finds a request that asks to look at the editor first: "이
+// 파일 보고 이 함수 설명해 줘" (the active file and selection), "에러 보고 고쳐
+// 줘" (the Problems list). It returns {context: "file" | "errors", text} with
+// the words kept as said, or null.
+// The verb must end there ("보고서" is a report): a space or a comma, then more.
+const CONTEXT_TAIL = String.raw`\s*(을|를|좀)?\s*(보고|보면서|참고해서|참고해|읽고)(\s*[,，]\s*|\s+)\S`;
+const CONTEXT_FILE_RE = new RegExp(String.raw`^\s*(이\s*파일|지금\s*파일|열린\s*파일|이\s*코드|선택한\s*(거|것|부분|코드)|고른\s*(거|것|부분))` + CONTEXT_TAIL);
+const CONTEXT_ERRORS_RE = new RegExp(String.raw`^\s*(에러|오류|문제|빨간\s*줄|경고)\s*(들)?` + CONTEXT_TAIL);
+function splitContext(text) {
+  const t = String(text || "").trim();
+  if (CONTEXT_FILE_RE.test(t)) return { context: "file", text: t };
+  if (CONTEXT_ERRORS_RE.test(t)) return { context: "errors", text: t };
   return null;
 }
 
@@ -530,8 +617,46 @@ function splitAddressee(text) {
   return null;
 }
 
+// VOICE_COMMANDS is the spoken commands as the help list shows them: what to
+// say (every example is checked to be taken as that command — see the tests)
+// and what it does. Kinds "stop", "wake", "to" and "context" are stopMatch's,
+// wakeMatch's, splitAddressee's and splitContext's; the rest parseCommand's.
+const VOICE_COMMANDS = [
+  { kind: "wake", group: "대화", does: "대화 시작 (호출어 방식일 때)", says: ["아글링크", "아글링크, 테스트 돌려 줘"] },
+  { kind: "stop", group: "대화", does: "대화 끝내기", says: ["그만", "대화 끝", "종료"] },
+  { kind: "hush", group: "읽기", does: "읽기 멈추기", says: ["잠깐", "멈춰", "그만 읽어"] },
+  { kind: "read", group: "읽기", does: "방금 답 · 그 전 답 다시 읽기, 자세히 · 짧게 읽기", says: ["다시 읽어 줘", "아까 답 다시 읽어 줘", "자세히 읽어 줘", "요약해서 읽어 줘"] },
+  { kind: "readEditor", group: "편집기", does: "편집기에서 고른 글(없으면 화면에 보이는 글) 읽기", says: ["이거 읽어 줘", "선택한 부분 읽어 줘"] },
+  { kind: "dictate", group: "편집기", does: "받아 적기: 말한 것을 커서 자리에 적기 / 마치기", says: ["받아 적어 줘", "받아 적기 끝"] },
+  { kind: "openFile", group: "편집기", does: "작업 폴더에서 이름으로 파일 열기", says: ["README 파일 열어 줘", "extension 점 js 파일 열어 줘"] },
+  { kind: "action", group: "편집기", does: "저장 · 모두 저장 · 터미널 열기", says: ["저장해 줘", "모두 저장해 줘", "터미널 열어 줘"] },
+  { kind: "context", group: "편집기", does: "열린 파일(고른 부분)이나 문제 목록을 질문에 붙여 보내기", says: ["이 파일 보고 이 함수 설명해 줘", "에러 보고 고쳐 줘"] },
+  { kind: "speed", group: "읽기", does: "읽는 빠르기", says: ["좀 더 천천히 말해 줘", "빨리 읽어 줘", "속도 원래대로 해 줘"] },
+  { kind: "voice", group: "읽기", does: "읽는 목소리 (남자 1~5번, 여자 1~5번)", says: ["여자 삼 번 목소리로 바꿔 줘", "다른 목소리로 바꿔 줘"] },
+  { kind: "textOnly", group: "읽기", does: "답을 읽지 않고 글로만 / 다시 읽기", says: ["글로만 보여 줘", "다시 말로 해 줘"] },
+  { kind: "volume", group: "읽기", does: "읽는 소리 크기", says: ["좀 더 크게 읽어 줘", "소리 작게 해 줘", "볼륨 올려 줘"] },
+  { kind: "copy", group: "답과 요청", does: "방금 답을 클립보드에 복사", says: ["복사해 줘", "방금 답 복사해 줘"] },
+  { kind: "resend", group: "답과 요청", does: "방금 한 요청을 한 번 더 보내기", says: ["다시 보내 줘", "방금 질문 다시 보내 줘"] },
+  { kind: "newConversation", group: "답과 요청", does: "새 대화 열기", says: ["새 대화 시작해 줘"] },
+  { kind: "to", group: "답과 요청", does: "이번 질문만 정한 쪽으로 보내기", says: ["코덱스한테 이 함수 고쳐 줘", "클로드야, 테스트 돌려 줘"] },
+  { kind: "pause", group: "듣기", does: "듣기 잠시 멈추기", says: ["인식 멈춰"] },
+  { kind: "resume", group: "듣기", does: "멈춘 듣기 다시 하기", says: ["다시 인식해"] },
+  { kind: "micOff", group: "듣기", does: "음성 끄기", says: ["마이크 꺼 줘"] },
+  { kind: "listen", group: "듣기", does: "늘 듣기 / 부를 때만 듣기", says: ["항상 듣기로 해 줘", "호출어로 켜 줘"] },
+  { kind: "barge", group: "듣기", does: "읽는 중에 말하면 멈추기 켜기 · 끄기", says: ["끼어들기 켜 줘", "끼어들기 꺼 줘"] },
+  { kind: "wakeName", group: "설정", does: "부르는 이름 바꾸기 · 더하기", says: ["부르는 이름을 자비스로 바꿔 줘", "자비스라고 불러도 대답해 줘"] },
+  { kind: "enroll", group: "설정", does: "내 목소리 등록", says: ["목소리 등록해 줘"] },
+  { kind: "unenroll", group: "설정", does: "등록한 목소리 지우기", says: ["목소리 등록 해제해 줘"] },
+  { kind: "help", group: "설정", does: "이 목록 보기", says: ["말 명령 알려 줘", "무슨 말 할 수 있어"] },
+];
+
 module.exports = {
   TTS_VOICES,
+  VOICE_COMMANDS,
+  VOLUME_STEP,
+  spokenFileName,
+  fileNameScore,
+  splitContext,
   MAX_WAKE_NAMES,
   SENTENCE_END_RE,
   GOES_ON_RE,

@@ -2,7 +2,7 @@
   "name": "aglink-voice",
   "displayName": "aglink 음성 — Claude Code 음성 대화",
   "description": "Claude Code 에 말로 묻고 답을 소리로 들어요. 받아쓰기(Whisper), 읽어 주기(Supertonic 목소리 10개), 등록한 목소리만 받기, \"아글링크\" 호출어가 모두 이 PC 안에서 돌아요.",
-  "version": "0.5.32",
+  "version": "0.5.34",
   "publisher": "aglink",
   "private": true,
   "engines": {
@@ -19,15 +19,24 @@
     "icons": {
       "aglink-hear-1": {
         "description": "aglink 음성: 말소리가 들어오는 중 (1/3)",
-        "default": { "fontPath": "./media/aglink-icons.woff", "fontCharacter": "\\E001" }
+        "default": {
+          "fontPath": "./media/aglink-icons.woff",
+          "fontCharacter": "\\E001"
+        }
       },
       "aglink-hear-2": {
         "description": "aglink 음성: 말소리가 들어오는 중 (2/3)",
-        "default": { "fontPath": "./media/aglink-icons.woff", "fontCharacter": "\\E002" }
+        "default": {
+          "fontPath": "./media/aglink-icons.woff",
+          "fontCharacter": "\\E002"
+        }
       },
       "aglink-hear-3": {
         "description": "aglink 음성: 말소리가 들어오는 중 (3/3)",
-        "default": { "fontPath": "./media/aglink-icons.woff", "fontCharacter": "\\E003" }
+        "default": {
+          "fontPath": "./media/aglink-icons.woff",
+          "fontCharacter": "\\E003"
+        }
       }
     },
     "commands": [
@@ -53,7 +62,7 @@
       },
       {
         "command": "aglinkVoice.next",
-        "title": "다음으로 (읽는 중이면 그만 읽기, 기다리는 중이면 대기 그만, 듣는 중이면 보내기)",
+        "title": "다음으로 넘기기 (그만 읽기 · 대기 그만 · 보내기)",
         "category": "aglink 음성"
       },
       {
@@ -96,6 +105,81 @@
         "command": "aglinkVoice.installCodexNotify",
         "title": "Codex 답 읽기 설정 (~/.codex/config.toml 의 notify)",
         "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.voiceCommands",
+        "title": "말 명령 도움말",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.pickTarget",
+        "title": "보낼 곳 고르기 (Claude Code / Codex / 자동)",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.pickListenMode",
+        "title": "듣기 방식 고르기 (호출어 / 바로 대화 / 켤 때만)",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.pickVoice",
+        "title": "목소리 고르기",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.pickSpeed",
+        "title": "읽는 빠르기 고르기",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.pickMic",
+        "title": "마이크 고르기",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.pickOutput",
+        "title": "소리 나올 곳 고르기",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.toggleTextOnly",
+        "title": "읽기 끄기 (음성 입력만) 켜기/끄기",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.toggleBarge",
+        "title": "읽는 중에 말하면 멈추기 켜기/끄기",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.copyLastAnswer",
+        "title": "마지막 답 복사",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.resendRecent",
+        "title": "최근 요청 다시 보내기",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.openWalkthrough",
+        "title": "처음 사용 안내",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.readSelection",
+        "title": "고른 글 읽어 주기 (없으면 화면에 보이는 글)",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.toggleDictation",
+        "title": "받아 적기 시작/끝 (말한 것을 커서 자리에)",
+        "category": "aglink 음성"
+      },
+      {
+        "command": "aglinkVoice.recentAnswers",
+        "title": "최근 답 다시 듣기",
+        "category": "aglink 음성"
       }
     ],
     "keybindings": [
@@ -106,225 +190,330 @@
       {
         "command": "aglinkVoice.next",
         "key": "ctrl+alt+enter"
+      },
+      {
+        "command": "aglinkVoice.skipReading",
+        "key": "escape",
+        "when": "aglinkVoice.speaking && !suggestWidgetVisible && !findWidgetVisible && !inQuickOpen && !parameterHintsVisible && !renameInputVisible && !notificationToastsVisible && !inSnippetMode && !editorHasMultipleSelections && !terminalFocus"
       }
     ],
-    "configuration": {
-      "title": "aglink 음성",
-      "properties": {
-        "aglinkVoice.voice": {
-          "type": "string",
-          "default": "M2",
-          "enum": [
-            "M1",
-            "M2",
-            "M3",
-            "M4",
-            "M5",
-            "F1",
-            "F2",
-            "F3",
-            "F4",
-            "F5"
-          ],
-          "enumDescriptions": [
-            "남자 1번",
-            "남자 2번",
-            "남자 3번",
-            "남자 4번",
-            "남자 5번",
-            "여자 1번",
-            "여자 2번",
-            "여자 3번",
-            "여자 4번",
-            "여자 5번"
-          ],
-          "order": 0,
-          "markdownDescription": "답을 읽어 줄 목소리예요. 남자 1~5번, 여자 1~5번. 대화 중에 \"여자 3번 목소리로 바꿔 줘\" 라고 말해도 돼요. [설정 화면](command:aglinkVoice.openSettings)에서 들어 보며 고를 수 있어요."
-        },
-        "aglinkVoice.target": {
-          "type": "string",
-          "default": "claude",
-          "enum": [
-            "claude",
-            "codex",
-            "auto"
-          ],
-          "enumDescriptions": [
-            "Claude Code 에 보내요.",
-            "Codex(OpenAI) 에 보내요. 답을 읽으려면 명령 \"aglink 음성: Codex 답 읽기 설정\" 을 한 번 해 주세요.",
-            "자동: 마지막으로 앞에 띄웠거나 답한 쪽에 보내요. 모르면 Claude Code."
-          ],
-          "order": 0,
-          "markdownDescription": "말한 질문을 보낼 곳이에요: Claude Code, Codex, 또는 자동."
-        },
-        "aglinkVoice.speed": {
-          "type": "number",
-          "default": 0.98,
-          "minimum": 0.7,
-          "maximum": 2,
-          "order": 1,
-          "markdownDescription": "읽는 빠르기예요. 1 이 보통이고 작을수록 천천히 읽어요 (0.7~2배). \"좀 더 천천히\", \"빨리 읽어 줘\" 라고 말해도 돼요."
-        },
-        "aglinkVoice.listenMode": {
-          "type": "string",
-          "default": "wake",
-          "enum": [
-            "wake",
-            "always",
-            "manual"
-          ],
-          "enumDescriptions": [
-            "호출어로 시작: 음성을 켜 두면 \"아글링크\" 라고 부를 때 대화가 시작돼요. 한동안 말이 없거나 끝내는 말(\"그만\")을 하면 다시 기다려요.",
-            "켜면 바로 대화: 부르지 않아도 바로 들어요. 끝내는 말(\"그만\")을 하면 호출어를 기다려요.",
-            "켤 때만 듣기: 켜면 바로 듣고, 끝내는 말(\"그만\")을 하면 음성이 꺼져요."
-          ],
-          "order": 2,
-          "markdownDescription": "음성을 켰을 때 언제부터 들을지예요."
-        },
-        "aglinkVoice.wakeIdleMin": {
-          "type": "number",
-          "default": 3,
-          "enum": [
-            0,
-            1,
-            3,
-            5,
-            10
-          ],
-          "order": 3,
-          "markdownDescription": "호출어 방식에서 이만큼(분) 말이 없으면 대화를 끝내고 다시 부를 때까지 기다려요. 0 은 끝내지 않기.",
-          "enumDescriptions": [
-            "끝내지 않기",
-            "1분",
-            "3분",
-            "5분",
-            "10분"
-          ]
-        },
-        "aglinkVoice.wakeNames": {
-          "type": "array",
-          "items": {
-            "type": "string"
+    "configuration": [
+      {
+        "id": "aglinkVoice",
+        "title": "aglink 음성",
+        "order": 0,
+        "properties": {
+          "aglinkVoice.target": {
+            "type": "string",
+            "default": "claude",
+            "enum": [
+              "claude",
+              "codex",
+              "auto"
+            ],
+            "enumDescriptions": [
+              "Claude Code 에 보내요.",
+              "Codex(OpenAI) 에 보내요. 답을 읽으려면 명령 \"aglink 음성: Codex 답 읽기 설정\" 을 한 번 해 주세요.",
+              "자동: 마지막으로 앞에 띄웠거나 답한 쪽에 보내요. 모르면 Claude Code."
+            ],
+            "order": 0,
+            "markdownDescription": "말한 질문을 보낼 곳이에요: Claude Code, Codex, 또는 자동."
           },
-          "default": [],
-          "maxItems": 5,
-          "order": 4,
-          "markdownDescription": "\"아글링크\" 말고도 부를 이름이에요 (한 이름 2~10글자, 5개까지). 영어 이름은 들리는 대로 한글로도 함께 적어 주세요 (예: Jarvis, 자비스)."
-        },
-        "aglinkVoice.wakeDefault": {
-          "type": "boolean",
-          "default": true,
-          "order": 5,
-          "markdownDescription": "\"아글링크\" 로 불러도 깨어나요. 끄면 위에 정한 이름으로만 깨어나요."
-        },
-        "aglinkVoice.stopWords": {
-          "type": "array",
-          "items": {
-            "type": "string"
+          "aglinkVoice.voice": {
+            "type": "string",
+            "default": "M2",
+            "enum": [
+              "M1",
+              "M2",
+              "M3",
+              "M4",
+              "M5",
+              "F1",
+              "F2",
+              "F3",
+              "F4",
+              "F5"
+            ],
+            "enumDescriptions": [
+              "남자 1번",
+              "남자 2번",
+              "남자 3번",
+              "남자 4번",
+              "남자 5번",
+              "여자 1번",
+              "여자 2번",
+              "여자 3번",
+              "여자 4번",
+              "여자 5번"
+            ],
+            "order": 1,
+            "markdownDescription": "답을 읽어 줄 목소리예요. 남자 1~5번, 여자 1~5번. 대화 중에 \"여자 3번 목소리로 바꿔 줘\" 라고 말해도 돼요. [설정 화면](command:aglinkVoice.openSettings)에서 들어 보며 고를 수 있어요."
           },
-          "default": [],
-          "maxItems": 5,
-          "order": 5,
-          "markdownDescription": "대화를 끝낼 내 말이에요 (한 말 1~10글자, 5개까지). 그 말만 했을 때 끝나요. 예: 됐어, 수고했어, 끝."
-        },
-        "aglinkVoice.stopDefault": {
-          "type": "boolean",
-          "default": true,
-          "order": 5,
-          "markdownDescription": "\"그만\", \"그만해\", \"대화 끝\", \"종료\" 로도 대화를 끝내요. 끄면 위에 정한 말로만 끝나요."
-        },
-        "aglinkVoice.summary": {
-          "type": "boolean",
-          "default": true,
-          "order": 6,
-          "markdownDescription": "긴 답은 요점만 짧게 읽어요. 끄면 답 전체를 읽어요. 켜 둔 채로 \"자세히 읽어 줘\" 라고 하면 그 답만 전부 읽어요."
-        },
-        "aglinkVoice.textOnly": {
-          "type": "boolean",
-          "default": false,
-          "order": 7,
-          "markdownDescription": "읽기를 끄고 음성 입력만 써요. 답과 안내 말(\"네, 말씀하세요\" 같은)을 소리로 읽지 않고 상태 표시줄에 글로만 보여 줘요. \"글로만 보여 줘\", \"다시 말로 해 줘\" 라고 말해도 돼요."
-        },
-        "aglinkVoice.readTyped": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "손으로 입력한 질문의 답도 소리로 읽어 줘요. 음성 대화를 켜지 않아도 되고, 마이크는 쓰지 않아요. 멈추려면 상태 표시줄의 버튼을 누르세요.",
-          "order": 8
-        },
-        "aglinkVoice.speakerMin": {
-          "type": "number",
-          "default": 0.4,
-          "minimum": 0.1,
-          "maximum": 0.7,
-          "order": 9,
-          "markdownDescription": "등록한 목소리와 얼마나 비슷해야 받을지예요. 높을수록 다른 사람 말을 잘 거르지만 내 말도 가끔 놓칠 수 있어요. 보통 0.4. 목소리를 등록해야 쓰여요."
-        },
-        "aglinkVoice.echoCancel": {
-          "type": "boolean",
-          "default": true,
-          "order": 11,
-          "markdownDescription": "마이크를 \"통화용\"으로 열어서 윈도우의 에코 제거와 잡음 억제를 써요. 스피커폰·스피커로 답을 읽을 때 그 소리를 내 말로 받아 적는 일이 줄어요. 마이크 장치(드라이버)가 지원해야 효과가 있고, 안 되면 저절로 예전 방식으로 돌아가요."
-        },
-        "aglinkVoice.barge": {
-          "type": "boolean",
-          "default": false,
-          "order": 10,
-          "markdownDescription": "답을 읽는 도중에 말하면 읽기를 멈추고 바로 들어요. 스피커 소리가 마이크로 들어가면 저절로 멈출 수 있으니 헤드셋을 쓸 때 켜는 게 좋아요."
-        },
-        "aglinkVoice.bargeFast": {
-          "type": "boolean",
-          "default": true,
-          "order": 10,
-          "markdownDescription": "끼어들기(`barge`)가 켜져 있을 때, 말소리가 시작되면(0.25초쯤) 받아쓰기를 기다리지 않고 바로 읽기를 멈춰요. 멈춘 뒤 들은 말이 질문이 아니면(잡음, 내 읽기 소리) 그냥 다음 말을 들어요. 끄면 받아쓰기와 목소리 확인이 끝난 뒤에 멈춰요."
-        },
-        "aglinkVoice.micDevice": {
-          "type": "string",
-          "default": "",
-          "order": 10,
-          "markdownDescription": "듣는 마이크예요. 비워 두면 **윈도우 기본 입력 장치**를 따라가요. 고르기는 상태 표시줄 음성 버튼 → \"마이크\" 에서 해요. 고른 장치가 연결되어 있지 않으면 윈도우 기본 장치로 들어요. 블루투스 이어폰은 켠 뒤 몇 초 지나야 소리가 들어와요."
-        },
-        "aglinkVoice.outputDevice": {
-          "type": "string",
-          "default": "",
-          "order": 10,
-          "markdownDescription": "읽어 주는 소리가 나올 곳이에요. 비워 두면 **윈도우 기본 출력 장치**로 나와요. 블루투스 이어폰의 마이크를 쓰는 동안은 그 이어폰 소리가 전화 음질이 되니, 소리는 PC 스피커로 고르는 것도 방법이에요."
-        },
-        "aglinkVoice.whisperServer": {
-          "type": "string",
-          "default": "",
-          "order": 11,
-          "markdownDescription": "음성 인식(받아쓰기)을 **어디서** 할지예요. 비워 두면 **이 PC에서 로컬**로 인식해요. `http://호스트:8178` 처럼 원격 whisper 서버 주소를 넣으면 그 **서버의 GPU**에서 인식해요 (예: `http://192.168.11.25:8178`)."
-        },
-        "aglinkVoice.micCleanup": {
-          "type": "string",
-          "default": "off",
-          "enum": [
-            "off",
-            "light",
-            "strong"
-          ],
-          "enumDescriptions": [
-            "끄기: 마이크 소리를 그대로 whisper로 보냄.",
-            "기본: 이 PC에서 고역통과(저주파 제거) + 노이즈 억제 + 레벨 정규화. 잔향·주변소음 완화.",
-            "강력: 신경망 노이즈 억제(RNNoise) + 위 처리. 소음이 심할 때. (엔진에 모듈 없으면 '기본'으로 동작)"
-          ],
-          "order": 12,
-          "markdownDescription": "whisper로 보내기 전에 마이크 소리를 **소프트웨어로 정리**해요(잔향 심한 방·원거리 마이크·주변 소음용). `off`=그대로, `light`=이 PC에서 정리, `strong`=신경망 노이즈 억제까지. 바꾼 뒤 음성을 껐다 켜면 적용돼요. (AEC(재생음 제거)는 하지 않아요.)"
-        },
-        "aglinkVoice.enginePath": {
-          "type": "string",
-          "default": "",
-          "description": "음성 엔진 위치. 비워 두면 설치된 곳(%LOCALAPPDATA%\\aglink-voice\\engine\\aglink-voice-engine.exe).",
-          "order": 12
-        },
-        "aglinkVoice.engineRoot": {
-          "type": "string",
-          "default": "",
-          "description": "모델(models\\)과 Whisper(whisper\\)가 있는 폴더. 비워 두면 엔진 폴더의 위.",
-          "order": 13
+          "aglinkVoice.speed": {
+            "type": "number",
+            "default": 0.98,
+            "minimum": 0.7,
+            "maximum": 2,
+            "order": 2,
+            "markdownDescription": "읽는 빠르기예요. 1 이 보통이고 작을수록 천천히 읽어요 (0.7~2배). \"좀 더 천천히\", \"빨리 읽어 줘\" 라고 말해도 돼요."
+          },
+          "aglinkVoice.volume": {
+            "type": "number",
+            "default": 1,
+            "minimum": 0.2,
+            "maximum": 2,
+            "markdownDescription": "읽는 소리 크기예요. 1 이 그대로이고 작을수록 작게, 클수록 크게 읽어요 (0.2~2배, 너무 크면 소리가 깨질 수 있어요). \"좀 더 크게 읽어 줘\", \"소리 작게 해 줘\" 라고 말해도 돼요.",
+            "order": 3
+          },
+          "aglinkVoice.listenMode": {
+            "type": "string",
+            "default": "wake",
+            "enum": [
+              "wake",
+              "always",
+              "manual"
+            ],
+            "enumDescriptions": [
+              "호출어로 시작: 음성을 켜 두면 \"아글링크\" 라고 부를 때 대화가 시작돼요. 한동안 말이 없거나 끝내는 말(\"그만\")을 하면 다시 기다려요.",
+              "켜면 바로 대화: 부르지 않아도 바로 들어요. 끝내는 말(\"그만\")을 하면 호출어를 기다려요.",
+              "켤 때만 듣기: 켜면 바로 듣고, 끝내는 말(\"그만\")을 하면 음성이 꺼져요."
+            ],
+            "order": 4,
+            "markdownDescription": "음성을 켰을 때 언제부터 들을지예요."
+          },
+          "aglinkVoice.wakeIdleMin": {
+            "type": "number",
+            "default": 3,
+            "enum": [
+              0,
+              1,
+              3,
+              5,
+              10
+            ],
+            "order": 5,
+            "markdownDescription": "호출어 방식에서 이만큼(분) 말이 없으면 대화를 끝내고 다시 부를 때까지 기다려요. 0 은 끝내지 않기.",
+            "enumDescriptions": [
+              "끝내지 않기",
+              "1분",
+              "3분",
+              "5분",
+              "10분"
+            ]
+          },
+          "aglinkVoice.wakeNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "maxItems": 5,
+            "order": 6,
+            "markdownDescription": "\"아글링크\" 말고도 부를 이름이에요 (한 이름 2~10글자, 5개까지). 영어 이름은 들리는 대로 한글로도 함께 적어 주세요 (예: Jarvis, 자비스)."
+          },
+          "aglinkVoice.wakeDefault": {
+            "type": "boolean",
+            "default": true,
+            "order": 7,
+            "markdownDescription": "\"아글링크\" 로 불러도 깨어나요. 끄면 위에 정한 이름으로만 깨어나요."
+          },
+          "aglinkVoice.stopWords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "maxItems": 5,
+            "order": 8,
+            "markdownDescription": "대화를 끝낼 내 말이에요 (한 말 1~10글자, 5개까지). 그 말만 했을 때 끝나요. 예: 됐어, 수고했어, 끝."
+          },
+          "aglinkVoice.stopDefault": {
+            "type": "boolean",
+            "default": true,
+            "order": 9,
+            "markdownDescription": "\"그만\", \"그만해\", \"대화 끝\", \"종료\" 로도 대화를 끝내요. 끄면 위에 정한 말로만 끝나요."
+          },
+          "aglinkVoice.summary": {
+            "type": "boolean",
+            "default": true,
+            "order": 10,
+            "markdownDescription": "긴 답은 요점만 짧게 읽어요. 끄면 답 전체를 읽어요. 켜 둔 채로 \"자세히 읽어 줘\" 라고 하면 그 답만 전부 읽어요."
+          },
+          "aglinkVoice.textOnly": {
+            "type": "boolean",
+            "default": false,
+            "order": 11,
+            "markdownDescription": "읽기를 끄고 음성 입력만 써요. 답과 안내 말(\"네, 말씀하세요\" 같은)을 소리로 읽지 않고 상태 표시줄에 글로만 보여 줘요. \"글로만 보여 줘\", \"다시 말로 해 줘\" 라고 말해도 돼요."
+          },
+          "aglinkVoice.readTyped": {
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "손으로 입력한 질문의 답도 소리로 읽어 줘요. 음성 대화를 켜지 않아도 되고, 마이크는 쓰지 않아요. 멈추려면 상태 표시줄의 버튼을 누르세요.",
+            "order": 12
+          },
+          "aglinkVoice.speakerMin": {
+            "type": "number",
+            "default": 0.4,
+            "minimum": 0.1,
+            "maximum": 0.7,
+            "order": 13,
+            "markdownDescription": "등록한 목소리와 얼마나 비슷해야 받을지예요. 높을수록 다른 사람 말을 잘 거르지만 내 말도 가끔 놓칠 수 있어요. 보통 0.4. 목소리를 등록해야 쓰여요."
+          },
+          "aglinkVoice.barge": {
+            "type": "boolean",
+            "default": false,
+            "order": 14,
+            "markdownDescription": "답을 읽는 도중에 말하면 읽기를 멈추고 바로 들어요. 스피커 소리가 마이크로 들어가면 저절로 멈출 수 있으니 헤드셋을 쓸 때 켜는 게 좋아요."
+          },
+          "aglinkVoice.echoCancel": {
+            "type": "boolean",
+            "default": true,
+            "order": 15,
+            "markdownDescription": "마이크를 \"통화용\"으로 열어서 윈도우의 에코 제거와 잡음 억제를 써요. 스피커폰·스피커로 답을 읽을 때 그 소리를 내 말로 받아 적는 일이 줄어요. 마이크 장치(드라이버)가 지원해야 효과가 있고, 안 되면 저절로 예전 방식으로 돌아가요."
+          },
+          "aglinkVoice.micDevice": {
+            "type": "string",
+            "default": "",
+            "order": 16,
+            "markdownDescription": "듣는 마이크예요. 비워 두면 **윈도우 기본 입력 장치**를 따라가요. 고르기는 상태 표시줄 음성 버튼 → \"마이크\" 에서 해요. 고른 장치가 연결되어 있지 않으면 윈도우 기본 장치로 들어요. 블루투스 이어폰은 켠 뒤 몇 초 지나야 소리가 들어와요."
+          },
+          "aglinkVoice.outputDevice": {
+            "type": "string",
+            "default": "",
+            "order": 17,
+            "markdownDescription": "읽어 주는 소리가 나올 곳이에요. 비워 두면 **윈도우 기본 출력 장치**로 나와요. 블루투스 이어폰의 마이크를 쓰는 동안은 그 이어폰 소리가 전화 음질이 되니, 소리는 PC 스피커로 고르는 것도 방법이에요."
+          }
+        }
+      },
+      {
+        "id": "aglinkVoiceAdvanced",
+        "title": "고급",
+        "order": 1,
+        "properties": {
+          "aglinkVoice.bargeFast": {
+            "type": "boolean",
+            "default": true,
+            "order": 0,
+            "markdownDescription": "**`barge`(읽는 중에 말하면 멈추기)가 켜져 있어야 쓰여요.** 끼어들기(`barge`)가 켜져 있을 때, 말소리가 시작되면(0.25초쯤) 받아쓰기를 기다리지 않고 바로 읽기를 멈춰요. 멈춘 뒤 들은 말이 질문이 아니면(잡음, 내 읽기 소리) 그냥 다음 말을 들어요. 끄면 받아쓰기와 목소리 확인이 끝난 뒤에 멈춰요."
+          },
+          "aglinkVoice.whisperServer": {
+            "type": "string",
+            "default": "",
+            "order": 1,
+            "markdownDescription": "음성 인식(받아쓰기)을 **어디서** 할지예요. 비워 두면 **이 PC에서 로컬**로 인식해요. `http://호스트:8178` 처럼 원격 whisper 서버 주소를 넣으면 그 **서버의 GPU**에서 인식해요 (예: `http://192.168.11.25:8178`)."
+          },
+          "aglinkVoice.micCleanup": {
+            "type": "string",
+            "default": "off",
+            "enum": [
+              "off",
+              "light",
+              "strong"
+            ],
+            "enumDescriptions": [
+              "끄기: 마이크 소리를 그대로 whisper로 보냄.",
+              "기본: 이 PC에서 고역통과(저주파 제거) + 노이즈 억제 + 레벨 정규화. 잔향·주변소음 완화.",
+              "강력: 신경망 노이즈 억제(RNNoise) + 위 처리. 소음이 심할 때. (엔진에 모듈 없으면 '기본'으로 동작)"
+            ],
+            "order": 2,
+            "markdownDescription": "whisper로 보내기 전에 마이크 소리를 **소프트웨어로 정리**해요(잔향 심한 방·원거리 마이크·주변 소음용). `off`=그대로, `light`=이 PC에서 정리, `strong`=신경망 노이즈 억제까지. 바꾼 뒤 음성을 껐다 켜면 적용돼요. (AEC(재생음 제거)는 하지 않아요.)"
+          },
+          "aglinkVoice.enginePath": {
+            "type": "string",
+            "default": "",
+            "description": "음성 엔진 위치. 비워 두면 설치된 곳(%LOCALAPPDATA%\\aglink-voice\\engine\\aglink-voice-engine.exe).",
+            "order": 3
+          },
+          "aglinkVoice.engineRoot": {
+            "type": "string",
+            "default": "",
+            "description": "모델(models\\)과 Whisper(whisper\\)가 있는 폴더. 비워 두면 엔진 폴더의 위.",
+            "order": 4
+          }
         }
       }
-    }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "aglinkVoice.sendNow",
+          "when": "aglinkVoice.on"
+        },
+        {
+          "command": "aglinkVoice.stopWaiting",
+          "when": "aglinkVoice.on"
+        },
+        {
+          "command": "aglinkVoice.skipReading",
+          "when": "aglinkVoice.speaking"
+        },
+        {
+          "command": "aglinkVoice.stopReading",
+          "when": "aglinkVoice.speaking"
+        }
+      ]
+    },
+    "walkthroughs": [
+      {
+        "id": "aglinkVoice.start",
+        "title": "aglink 음성 시작하기",
+        "description": "음성 엔진 설치부터 첫 대화까지, 몇 단계면 돼요.",
+        "steps": [
+          {
+            "id": "engine",
+            "title": "음성 엔진 설치",
+            "description": "받아쓰기와 읽어 주기는 이 PC에 설치한 음성 엔진이 해요. aglink 음성 설치 파일(aglink-voice-setup)을 한 번 실행해 주세요.\n[설치 파일 받는 곳 열기](https://github.com/tyranno/aglink-voice/releases)",
+            "media": {
+              "markdown": "media/walkthrough.md"
+            }
+          },
+          {
+            "id": "turnOn",
+            "title": "음성 켜기",
+            "description": "상태 표시줄 왼쪽의 **음성** 을 누르거나 **Ctrl+Alt+V** 를 누르면 켜져요. 기본은 \"아글링크\" 라고 부르면 대화가 시작돼요.\n[음성 켜기](command:aglinkVoice.toggle)",
+            "media": {
+              "markdown": "media/walkthrough.md"
+            },
+            "completionEvents": [
+              "onCommand:aglinkVoice.toggle"
+            ]
+          },
+          {
+            "id": "enroll",
+            "title": "내 목소리 등록 (15초)",
+            "description": "목소리를 등록하면 다른 사람 말소리와 스피커 소리를 보내지 않아요.\n[내 목소리 등록](command:aglinkVoice.enroll)",
+            "media": {
+              "markdown": "media/walkthrough.md"
+            },
+            "completionEvents": [
+              "onCommand:aglinkVoice.enroll"
+            ]
+          },
+          {
+            "id": "target",
+            "title": "보낼 곳 고르기",
+            "description": "말한 질문을 Claude Code, Codex, 또는 마지막으로 쓴 쪽(자동)으로 보내요.\n[보낼 곳 고르기](command:aglinkVoice.pickTarget)",
+            "media": {
+              "markdown": "media/walkthrough.md"
+            },
+            "completionEvents": [
+              "onCommand:aglinkVoice.pickTarget"
+            ]
+          },
+          {
+            "id": "commands",
+            "title": "말 명령 익히기",
+            "description": "\"잠깐\", \"다시 읽어 줘\", \"복사해 줘\", \"그만\" 처럼 말로 바꿀 수 있는 것들이에요.\n[말 명령 보기](command:aglinkVoice.voiceCommands)",
+            "media": {
+              "markdown": "media/walkthrough.md"
+            },
+            "completionEvents": [
+              "onCommand:aglinkVoice.voiceCommands"
+            ]
+          }
+        ]
+      }
+    ]
   },
   "repository": {
     "type": "git",

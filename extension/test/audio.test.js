@@ -47,3 +47,18 @@ test("prependSilence adds a silent lead and keeps the original samples and rate"
   assert.ok(voiced > 4000, "the original tone survives after the lead");
   assert.strictEqual(A.prependSilence(clip, 0), clip, "zero ms returns the clip unchanged");
 });
+
+test("scaleWav makes a 16-bit WAV louder or softer, clipped at full scale, and leaves others alone", () => {
+  const A2 = require("../core/audio");
+  const wav = A2.encodeWav(new Float32Array([0.5, -0.5, 0.9]));
+  const at = (w, i) => w.readInt16LE(44 + i * 2);
+  const half = A2.scaleWav(wav, 0.5);
+  assert.ok(Math.abs(at(half, 0) - at(wav, 0) / 2) <= 1);
+  const loud = A2.scaleWav(wav, 2);
+  assert.strictEqual(at(loud, 2), 32767, "clipped");
+  assert.strictEqual(at(loud, 1), -32768);
+  assert.strictEqual(A2.scaleWav(wav, 1), wav);
+  const odd = Buffer.from("not a wav file at all, just some bytes here......");
+  assert.strictEqual(A2.scaleWav(odd, 2), odd);
+  assert.strictEqual(at(wav, 0), Math.round(0.5 * 0x7fff), "the original is untouched");
+});

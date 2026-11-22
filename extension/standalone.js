@@ -28,13 +28,37 @@ const { createVocab } = require("./core/vocab");
 const { turnFromHook } = require("./core/turns");
 const { AGENTS, pickAgent, agentOfTab } = require("./agents");
 const { codexNotifyConfigured } = require("./codexnotify");
-const { TTS_VOICES, voiceLabel, cleanWakeNames } = require("./core/text");
+const { TTS_VOICES, voiceLabel, cleanWakeNames, wakeNameLabel, fileNameScore } = require("./core/text");
 const { STANDALONE_PORT, ensureStopHook, ownsTurn, hookAllowed } = require("./hook");
-const { stateLook, HEAR_FRAME_MS } = require("./desktoplink");
+const { stateLook, HEAR_FRAME_MS } = require("./core/look");
 
 const SECTION = "aglinkVoice";
-const SETTING_KEYS = ["voice", "speed", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge", "bargeFast", "echoCancel", "micDevice", "outputDevice"];
+const SETTING_KEYS = ["voice", "speed", "volume", "speakerMin", "listenMode", "wakeIdleMin", "summary", "wakeNames", "wakeDefault", "stopWords", "stopDefault", "textOnly", "readTyped", "barge", "bargeFast", "echoCancel", "micDevice", "outputDevice"];
 const READER_IDLE_MS = 10 * 60000;
+const HISTORY_KEEP = 20; // recent spoken requests kept for "최근 요청 다시 보내기"
+const MIC_HINT_MS = 60000; // the mic-failure message is shown at most this often
+const ANSWERS_KEEP = 5; // recent answers for "최근 답 다시 듣기"
+const MAX_READ_CHARS = 4000; // "이거 읽어 줘" reads at most this much
+const MAX_ATTACH_CHARS = 6000; // "이 파일 보고 …" sends at most this much of the selection
+const MAX_PROBLEMS = 30; // "에러 보고 …" sends at most this many problems
+const FILE_SEARCH_EXCLUDE = "**/{node_modules,.git,dist,out,build,.venv,__pycache__}/**";
+const RELEASES_URL = "https://github.com/tyranno/aglink-voice/releases"; // the setup files
+
+// targetText is where spoken questions go, as the button's tooltip says it:
+// for "auto", also the one it goes to now.
+function targetText(target, now) {
+  if (target === "codex") return "Codex";
+  if (target === "auto") return `자동 (지금은 ${now})`;
+  return "Claude Code";
+}
+
+// rememberRequest puts text at the end of the recent requests, once.
+function rememberRequest(list, text, keep = HISTORY_KEEP, at = Date.now()) {
+  const t = String(text || "").trim();
+  const out = (Array.isArray(list) ? list : []).filter((x) => x && x.text && x.text !== t);
+  if (t) out.push({ text: t, at });
+  return out.slice(-keep);
+}
 
 // enginePaths: where the setup put the engine (%LOCALAPPDATA%\aglink-voice),
 // unless the settings say otherwise. The root holds models\ and whisper\.
@@ -53,12 +77,13 @@ function readSettings(cfg) {
   if (!s.wakeDefault && !s.wakeNames.length) s.wakeDefault = true; // always some name to wake on
   s.stopWords = cleanWakeNames(s.stopWords, 1);
   if (!s.stopDefault && !s.stopWords.length) s.stopDefault = true; // always some word to end on
+  if (!(s.volume > 0)) s.volume = 1;
   return s;
 }
 
-// elsewhere(): the desktop app's voice is on — it reads its own answers, so
-// typed questions' answers are left alone too.
-function createStandalone(vscode, context, log, { item, active = () => true, elsewhere = () => false, showSend = () => {} } = {}) {
+// showSend(phase) shows the buttons for the phase; showLog() opens the output
+// channel (for the buttons on error messages).
+function createStandalone(vscode, context, log, { item, showSend = () => {}, showLog = () => {} } = {}) {
   const cfg = () => vscode.workspace.getConfiguration(SECTION);
   const settings = {
     get: () => readSettings(cfg()),
@@ -79,6 +104,8 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   let readerTimer = null;
   let epoch = 0; // counts teardowns: a start that outlives one is dropped
   let last = { on: false, phase: "off", label: "음성 꺼짐" };
+  let lastAnswer = ""; // the last answer this window got, for "마지막 답 복사"
+  const answers = []; // the last few answers this window got, newest last
   const listeners = new Set(); // the settings panel, told when voice goes on or off
 
   const voiceOn = () => !!(conv && conv.isOn);
@@ -99,7 +126,13 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     const a = agentOfTab(vscode.window.tabGroups && vscode.window.tabGroups.activeTabGroup && vscode.window.tabGroups.activeTabGroup.activeTab);
     if (a) recentAgent = a;
   };
-  const tabWatch = vscode.window.tabGroups ? [vscode.window.tabGroups.onDidChangeTabs(seeTab), vscode.window.tabGroups.onDidChangeTabGroups(seeTab)] : [];
+  // The button's tooltip says where "auto" sends now, so a change is drawn.
+  const seeTabAndDraw = () => {
+    const before = recentAgent;
+    seeTab();
+    if (recentAgent !== before) render();
+  };
+  const tabWatch = vscode.window.tabGroups ? [vscode.window.tabGroups.onDidChangeTabs(seeTabAndDraw), vscode.window.tabGroups.onDidChangeTabGroups(seeTabAndDraw)] : [];
   seeTab();
   // Codex's answers need our notify line in ~/.codex/config.toml, which is
   // only added on the user's click: the first send to Codex without it says so.
@@ -138,6 +171,120 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     deliver: () => (engine ? engine.call("paste", identity()) : { ok: false, error: "음성 엔진이 꺼져 있어요" }),
   });
 
+  // ---- the editor, for the spoken editor commands (core/conversation.js ide) ----
+
+  // editor: the text editor in use. With Claude Code's panel in front there is
+  // no active one, so the last one that was, if still on screen, or any shown.
+  let lastEditor = vscode.window.activeTextEditor || null;
+  const editorWatch = vscode.window.onDidChangeActiveTextEditor
+    ? vscode.window.onDidChangeActiveTextEditor((e) => {
+        if (e) lastEditor = e;
+      })
+    : null;
+  function editor() {
+    const shown = vscode.window.visibleTextEditors || [];
+    return vscode.window.activeTextEditor || shown.find((e) => e === lastEditor) || shown[0] || null;
+  }
+  const baseName = (uri) => path.basename(uri.fsPath || uri.path || "");
+  const selectedText = (e) =>
+    e.selections
+      .filter((s) => !s.isEmpty)
+      .map((s) => e.document.getText(s))
+      .join("\n");
+
+  const ide = {
+    // what "이거 읽어 줘" reads: the selection, else what is on screen
+    async readable() {
+      const e = editor();
+      if (!e) return "";
+      const text = selectedText(e) || (e.visibleRanges || []).map((r) => e.document.getText(r)).join("\n");
+      return text.slice(0, MAX_READ_CHARS);
+    },
+    // 받아 적기: the words at the cursor, a space before them when they would
+    // run into a word
+    async insert(text) {
+      const e = editor();
+      if (!e) return false;
+      const pos = e.selection.active;
+      const before = pos.character > 0 ? e.document.lineAt(pos.line).text[pos.character - 1] : "";
+      const piece = (before && !/\s/.test(before) ? " " : "") + text;
+      return e.edit((b) => b.replace(e.selection, piece));
+    },
+    // "이 파일 보고 …": the file and the selection; "에러 보고 …": the problems
+    async attach(kind) {
+      if (kind === "errors") return problemsText();
+      const e = editor();
+      if (!e) return "";
+      const rel = vscode.workspace.asRelativePath(e.document.uri);
+      const sel = selectedText(e);
+      if (!sel) return `(참고: 열린 파일 ${rel}, 커서는 ${e.selection.active.line + 1}번째 줄)`;
+      const from = e.selection.start.line + 1;
+      const to = e.selection.end.line + 1;
+      return `(참고: ${rel} ${from === to ? `${from}번째 줄` : `${from}~${to}번째 줄`}에서 고른 부분)\n\`\`\`\n${sel.slice(0, MAX_ATTACH_CHARS)}\n\`\`\``;
+    },
+    async openFile(name) {
+      const files = await vscode.workspace.findFiles("**/*", FILE_SEARCH_EXCLUDE, 5000);
+      let best = 0;
+      let found = [];
+      for (const uri of files) {
+        const sc = fileNameScore(name, baseName(uri));
+        if (sc > best) [best, found] = [sc, [uri]];
+        else if (sc && sc === best) found.push(uri);
+      }
+      if (!found.length) return `"${name}" 파일을 찾지 못했어요`;
+      const open = async (uri) => vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: false });
+      if (found.length === 1) {
+        await open(found[0]);
+        return `📂 ${baseName(found[0])} 열었어요`;
+      }
+      // Not awaited: the conversation goes on while the list is up.
+      void vscode.window
+        .showQuickPick(
+          found.slice(0, 50).map((uri) => ({ label: baseName(uri), description: vscode.workspace.asRelativePath(uri), uri })),
+          { title: `"${name}" 파일이 여러 개예요`, placeHolder: "열 파일을 고르세요" },
+        )
+        .then((pick) => pick && open(pick.uri))
+        .catch((e) => log(`voice: open file failed: ${e.message}`));
+      return `📂 "${name}" 파일이 ${found.length}개라 목록을 띄웠어요`;
+    },
+    async action(name) {
+      if (name === "saveAll") {
+        await vscode.workspace.saveAll(false);
+        return "💾 모두 저장했어요";
+      }
+      if (name === "terminal") {
+        await vscode.commands.executeCommand("workbench.action.terminal.focus");
+        return "터미널을 열었어요";
+      }
+      if (name === "save") {
+        const e = editor();
+        if (!e) return "저장할 파일이 없어요";
+        if (!e.document.isDirty) return `${baseName(e.document.uri)} 은 이미 저장되어 있어요`;
+        return (await e.document.save()) ? `💾 ${baseName(e.document.uri)} 저장했어요` : "저장하지 못했어요";
+      }
+      return "";
+    },
+  };
+
+  // problemsText is the Problems list as lines for a request: errors and
+  // warnings, those of the file in use first.
+  function problemsText() {
+    const sev = vscode.DiagnosticSeverity || { Error: 0, Warning: 1 };
+    const e = editor();
+    const current = e ? e.document.uri.toString() : "";
+    const all = (vscode.languages.getDiagnostics() || []).filter(([, list]) => list.some((d) => d.severity <= sev.Warning));
+    all.sort(([a], [b]) => (b.toString() === current) - (a.toString() === current));
+    const lines = [];
+    for (const [uri, list] of all) {
+      for (const d of list) {
+        if (d.severity > sev.Warning) continue;
+        if (lines.length >= MAX_PROBLEMS) break;
+        lines.push(`- ${vscode.workspace.asRelativePath(uri)}:${d.range.start.line + 1}: [${d.severity === sev.Error ? "오류" : "경고"}] ${String(d.message).split("\n")[0]}`);
+      }
+    }
+    return lines.length ? `(참고: VS Code 문제 목록)\n${lines.join("\n")}` : "";
+  }
+
   const ICONS = { off: "$(mic)", wake: "$(mic)", conversation: "$(mic-filled)", listening: "$(mic-filled)", preparing: "$(loading~spin)", transcribing: "$(loading~spin)", speaking: "$(unmute)", waiting: "$(watch)", note: "$(mic-filled)", problem: "$(warning)" };
 
   // While speech is coming in the button shows the same mic with 1-3 waves
@@ -157,32 +304,44 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     }
   }
 
+  // Context keys for keybindings: aglinkVoice.speaking (Esc stops the
+  // reading) and aglinkVoice.on; set only when they change.
+  const contextKeys = {};
+  function setContext(key, value) {
+    if (contextKeys[key] === value) return;
+    contextKeys[key] = value;
+    Promise.resolve(vscode.commands.executeCommand("setContext", `aglinkVoice.${key}`, value)).catch(() => {});
+  }
+
   function render() {
     const st = last;
-    animate(active() && st.on && !!st.hearing);
-    if (active()) showSend(st.on ? st.phase : null);
-    if (!active()) return;
+    animate(st.on && !!st.hearing);
+    showSend(st.on ? st.phase : null);
+    setContext("speaking", st.phase === "speaking");
+    setContext("on", !!st.on);
+    const to = `보낼 곳: ${targetText(cfg().get("target"), agent().name)}`;
     if (starting && !st.on) {
       item.text = "$(loading~spin) 음성 켜는 중";
       item.tooltip = "음성 엔진을 켜는 중이에요";
       item.backgroundColor = undefined;
     } else if (!st.on && st.phase === "speaking") {
-      item.text = "$(unmute) 답변 읽는 중";
-      item.tooltip = "타이핑한 질문의 답을 읽는 중이에요. 누르면 멈춰요.";
+      item.text = `$(unmute) ${st.label || "답변을 읽는 중"}`;
+      item.tooltip = "타이핑한 질문의 답을 읽는 중이에요. 누르거나 Esc 를 누르면 멈춰요.";
       item.backgroundColor = undefined;
     } else if (!st.on) {
       item.text = "$(mic) 음성";
-      item.tooltip = "aglink 음성 — 누르면 켜요 (Ctrl+Alt+V). 메뉴는 옆의 ▾.";
+      item.tooltip = `aglink 음성 — 누르면 켜요 (Ctrl+Alt+V). 메뉴는 옆의 ▾.\n${to}`;
       item.backgroundColor = undefined;
     } else if (st.hearing) {
       const look = stateLook(st, frame);
       item.text = `${look.icon} ${look.text}`;
-      item.tooltip = "말소리가 들어오고 있어요. 누르면 꺼요 (Ctrl+Alt+V).";
+      item.tooltip = `말소리가 들어오고 있어요. 누르면 꺼요 (Ctrl+Alt+V).\n${to}`;
       item.backgroundColor = new vscode.ThemeColor(look.bg);
     } else {
       item.text = `${ICONS[st.phase] || "$(mic)"} ${st.label}`;
       const s = settings.get();
-      item.tooltip = `음성 켜짐 — ${voiceLabel(s.voice)} 목소리, ${s.speed}배, 받아쓰기 ${st.whisper === "gpu" ? "그래픽카드" : st.whisper === "cpu" ? "CPU" : "준비 중"}. 누르면 꺼요 (Ctrl+Alt+V). 메뉴는 옆의 ▾.`;
+      const esc = st.phase === "speaking" ? " 읽는 중에는 Esc 로 멈춰요." : "";
+      item.tooltip = `음성 켜짐 — ${voiceLabel(s.voice)} 목소리, ${s.speed}배, 받아쓰기 ${st.whisper === "gpu" ? "그래픽카드" : st.whisper === "cpu" ? "CPU" : "준비 중"}. 누르면 꺼요 (Ctrl+Alt+V). 메뉴는 옆의 ▾.${esc}\n${to}`;
       item.backgroundColor = st.phase === "problem" ? new vscode.ThemeColor("statusBarItem.errorBackground") : new vscode.ThemeColor("statusBarItem.warningBackground");
     }
     item.show();
@@ -233,13 +392,19 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     if (!ownsTurn(turn.cwd, folders)) return;
     const md = turn.md;
     if (!md) return;
-    recentAgent = turn.agent;
+    lastAnswer = md;
+    answers.push(md);
+    if (answers.length > ANSWERS_KEEP) answers.shift();
+    if (recentAgent !== turn.agent) {
+      recentAgent = turn.agent;
+      render();
+    }
     const receivedAt = Date.now();
     const lag = answerLag(turn.transcript, receivedAt);
     log(`voice: ${AGENTS[turn.agent].name} answer arrived${lag != null ? ` ${lag} ms after it was written` : ""}${turn.question === undefined ? " (its question unknown)" : ""}`);
     if (conv) conv.answerAt = receivedAt;
     if (conv && conv.onReply(md, turn)) return; // the answer to what was said
-    if (!settings.get().readTyped || elsewhere()) return;
+    if (!settings.get().readTyped) return;
     void reader().then((c) => {
       if (c && c.readTyped(md)) idleLater();
     });
@@ -286,11 +451,17 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
 
   async function ensureServer() {
     if (server) return;
-    if (ensureStopHook()) log("voice: Claude Code Stop hook added to ~/.claude/settings.json");
+    if (ensureStopHook()) {
+      log("voice: Claude Code Stop hook added to ~/.claude/settings.json");
+      void vscode.window.showInformationMessage("aglink 음성: Claude Code 의 답을 읽을 수 있도록 Claude Code 설정(~/.claude/settings.json)에 답 알림(Stop hook)을 넣었어요. 다른 설정은 그대로예요.");
+    }
     try {
       server = await listen();
     } catch (e) {
-      throw new Error(e.code === "EADDRINUSE" ? "다른 VS Code 창에서 음성을 쓰고 있어요." : e.message);
+      if (e.code !== "EADDRINUSE") throw e;
+      const err = new Error("다른 VS Code 창에서 음성을 쓰고 있어요. 그 창에서 음성을 끈 뒤 다시 켜 주세요.");
+      err.kind = "portInUse";
+      throw err;
     }
   }
 
@@ -322,14 +493,22 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
 
   async function startCore(whisper) {
     const { exe, root } = enginePaths(cfg());
-    if (!fs.existsSync(exe)) throw new Error(`음성 엔진이 설치되어 있지 않아요 (${exe}). aglink 음성 설치 파일을 먼저 실행해 주세요.`);
+    if (!fs.existsSync(exe)) {
+      const err = new Error(`음성 엔진이 설치되어 있지 않아요 (${exe}). aglink 음성 설치 파일을 먼저 실행해 주세요.`);
+      err.kind = "engineMissing";
+      throw err;
+    }
     const e = new Engine(exe, root, log, { whisper, ...startupOpts() });
     e.on("exit", (code) => {
       if (engine !== e) return;
       const wasOn = voiceOn();
       log(`voice: engine exited (${code})`);
       teardown();
-      if (wasOn) vscode.window.showWarningMessage("aglink 음성: 음성 엔진이 멈춰서 음성을 껐어요. 다시 켜 주세요.");
+      if (wasOn)
+        void vscode.window.showWarningMessage("aglink 음성: 음성 엔진이 멈춰서 음성을 껐어요.", "다시 켜기", "출력 창 보기").then((pick) => {
+          if (pick === "다시 켜기") void toggle();
+          else if (pick) showLog();
+        });
     });
     const my = epoch;
     await e.start();
@@ -347,6 +526,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       // ours) is marked so the conversation does not wait for one.
       send: async (text, ctx) => {
         const res = await send(text, ctx);
+        if (res && res.ok) store.set("history", rememberRequest(store.get("history"), text));
         if (res && res.ok && ctx && ctx.agent === "codex" && !(await codexNotifyConfigured(vscode)))
           return { ...res, noAnswer: "답은 읽지 못해요 (명령: aglink 음성: Codex 답 읽기 설정)" };
         return res;
@@ -356,6 +536,8 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
         const a = id && AGENTS[id] ? AGENTS[id] : agent();
         return { id: a.id, name: a.name };
       },
+      copy: (text) => vscode.env.clipboard.writeText(text),
+      ide,
       log: (m) => log(`voice: ${m}`),
       vocab: createVocab({ log: (m) => log(`voice: ${m}`) }), // ~/.aglink/voice-words.json, shared with the desktop app
     });
@@ -365,6 +547,49 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       if (!st.on && st.phase !== "speaking" && engine === e) idleLater(); // a reading with voice off has ended
     });
     conv.on("off", () => void stop());
+    conv.on("help", () => void vscode.commands.executeCommand("aglinkVoice.voiceCommands"));
+    conv.on("micFailed", (message) => micFailed(message));
+  }
+
+  // micFailed offers Windows' microphone privacy settings (an app not allowed
+  // the mic is the usual cause) and the mic choice; not more than once a minute.
+  let micHintAt = -Infinity;
+  function micFailed(message) {
+    if (Date.now() - micHintAt < MIC_HINT_MS) return;
+    micHintAt = Date.now();
+    void vscode.window
+      .showWarningMessage(`aglink 음성: 마이크를 열 수 없어요 (${message}). 윈도우의 마이크 권한이나 고른 마이크를 확인해 주세요.`, "마이크 권한 설정 열기", "마이크 고르기")
+      .then((pick) => {
+        if (pick === "마이크 권한 설정 열기") void vscode.env.openExternal(vscode.Uri.parse("ms-settings:privacy-microphone"));
+        else if (pick === "마이크 고르기") void vscode.commands.executeCommand("aglinkVoice.pickMic");
+      });
+  }
+
+  // startError shows why voice could not be turned on, with what helps.
+  function startError(e) {
+    if (e.micFailed) {
+      micHintAt = -Infinity;
+      micFailed(e.message);
+      return;
+    }
+    const buttons = e.kind === "engineMissing" ? ["설치 파일 받는 곳 열기", "엔진 위치 설정", "출력 창 보기"] : e.kind === "portInUse" ? ["다시 시도", "출력 창 보기"] : ["출력 창 보기"];
+    void vscode.window.showErrorMessage(`aglink 음성: ${e.message}`, ...buttons).then((pick) => {
+      if (pick === "설치 파일 받는 곳 열기") void vscode.env.openExternal(vscode.Uri.parse(RELEASES_URL));
+      else if (pick === "엔진 위치 설정") void vscode.commands.executeCommand("workbench.action.openSettings", "aglinkVoice.enginePath");
+      else if (pick === "다시 시도") void toggle();
+      else if (pick === "출력 창 보기") showLog();
+    });
+  }
+
+  // wakeHint: the first time voice goes on in wake mode, how to start talking.
+  function wakeHint() {
+    if (settings.get().listenMode !== "wake" || store.get("wakeHinted")) return;
+    store.set("wakeHinted", true);
+    const name = wakeNameLabel(settings.get());
+    void vscode.window.showInformationMessage(`aglink 음성: '${name}'라고 부르면 대화가 시작돼요. 끝낼 때는 '그만'이라고 하세요.`, "항상 듣기로 바꾸기", "말 명령 보기").then(async (pick) => {
+      if (pick === "항상 듣기로 바꾸기") await settings.set({ listenMode: "always" }); // the configuration change starts the conversation
+      else if (pick === "말 명령 보기") void vscode.commands.executeCommand("aglinkVoice.voiceCommands");
+    });
   }
 
   // teardown stops everything: the conversation, the engine, and the hook
@@ -443,11 +668,12 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     render();
     try {
       await starting;
+      if (voiceOn()) wakeHint();
     } catch (e) {
       log(`voice: start failed: ${e.message}`);
       starting = null;
       await stop();
-      vscode.window.showErrorMessage(`aglink 음성: ${e.message}`);
+      startError(e);
     } finally {
       starting = null;
       changed();
@@ -494,6 +720,58 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     stopWaiting() {
       if (conv) conv.stopWaiting();
     },
+    // listenModeChanged starts the conversation when "always" is picked while
+    // voice waits for the wake word.
+    listenModeChanged() {
+      if (conv && conv.isOn && !conv.conv && settings.get().listenMode === "always") conv.startConversation();
+    },
+    // The last answer this window got (to a spoken or a typed question), as written.
+    get lastAnswer() {
+      return lastAnswer;
+    },
+    ide, // the editor hooks the conversation uses (for checks)
+    // recentAnswers: the last few answers this window got, newest first.
+    recentAnswers() {
+      return [...answers].reverse();
+    },
+    // readAnswer reads one of them again (a summary, as answers are read); voice need not be on.
+    async readAnswer(md) {
+      const c = voiceOn() ? conv : await reader();
+      if (!c) return;
+      await c.speak(md, c.speechMode());
+      idleLater();
+    },
+    // readSelection reads the editor's selection (or what is on screen).
+    async readSelection() {
+      const text = String(await ide.readable()).trim();
+      if (!text) return false;
+      const c = voiceOn() ? conv : await reader();
+      if (!c) return false;
+      await c.speak(text, "full");
+      idleLater();
+      return true;
+    },
+    get dictating() {
+      return !!(conv && conv.dictating);
+    },
+    // setDictation starts or ends 받아 적기, turning voice on for it if need be.
+    async setDictation(on) {
+      if (on && !(await ensureOn())) return false;
+      return !!(conv && conv.setDictation(on));
+    },
+    // history: the recent spoken requests, newest first.
+    history() {
+      const list = store.get("history");
+      return (Array.isArray(list) ? list : []).filter((x) => x && x.text).reverse();
+    },
+    // resend sends text again as if just said, turning voice on for it if need
+    // be; it says so when it cannot (the user is talking, say).
+    async resend(text) {
+      if (!(await ensureOn())) return false;
+      const ok = await conv.resend(text);
+      if (!ok) void vscode.window.showWarningMessage("aglink 음성: 지금은 보낼 수 없어요. 듣거나 알아듣는 중이면 끝난 뒤에 다시 해 주세요.");
+      return ok;
+    },
     // enroll records the user's voice (turning voice on for it if need be).
     async enroll() {
       if (!(await ensureOn())) return;
@@ -513,7 +791,9 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
     async preview() {
       const c = voiceOn() ? conv : await reader();
       if (!c) {
-        vscode.window.showErrorMessage("aglink 음성: 음성 엔진을 켜지 못했어요. 출력 창의 'aglink 음성' 기록을 확인해 주세요.");
+        void vscode.window.showErrorMessage("aglink 음성: 음성 엔진을 켜지 못했어요. 출력 창의 'aglink 음성' 기록을 확인해 주세요.", "출력 창 보기").then((pick) => {
+          if (pick) showLog();
+        });
         return;
       }
       await c.preview();
@@ -541,6 +821,7 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
       clearTimeout(readerTimer);
       animate(false);
       for (const d of tabWatch) d.dispose();
+      if (editorWatch) editorWatch.dispose();
       const c = conv;
       conv = null;
       if (c) c.stop();
@@ -551,4 +832,4 @@ function createStandalone(vscode, context, log, { item, active = () => true, els
   };
 }
 
-module.exports = { createStandalone, enginePaths, readSettings, SETTING_KEYS };
+module.exports = { createStandalone, enginePaths, readSettings, targetText, rememberRequest, SETTING_KEYS };

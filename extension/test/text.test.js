@@ -120,3 +120,70 @@ test("splitAddressee: a question said to Codex or Claude by name goes to it, a m
   for (const said of ["코덱스 설정 열어 줘", "코덱스는 어떻게 생각해", "코덱스로 바꿔 줘", "코덱스한테", "오늘 날씨 어때", ""])
     assert.strictEqual(T.splitAddressee(said), null, said);
 });
+
+test("the help list's every example is taken as its command", () => {
+  for (const c of T.VOICE_COMMANDS) {
+    assert.ok(c.group && c.does && c.says.length, c.kind);
+    for (const x of c.says) {
+      let kind;
+      if (c.kind === "stop") kind = T.stopMatch(x) ? "stop" : null;
+      else if (c.kind === "wake") kind = T.wakeMatch(x) >= 0 ? "wake" : null;
+      else if (c.kind === "to") kind = T.splitAddressee(x) ? "to" : null;
+      else if (c.kind === "context") kind = T.splitContext(x) && !T.parseCommand(x) ? "context" : null;
+      else kind = (T.parseCommand(x) || {}).kind;
+      assert.strictEqual(kind, c.kind, x);
+    }
+  }
+});
+
+test("복사 / 다시 보내 / 말 명령: the new commands, and requests that only look like them", () => {
+  for (const s of ["복사해 줘", "방금 답 복사해 줘", "답변 복사해", "클립보드에 복사해 줘", "그거 카피해 줘"]) assert.deepStrictEqual(T.parseCommand(s), { kind: "copy" }, s);
+  for (const s of ["다시 보내 줘", "한 번 더 보내 줘", "방금 질문 다시 보내 줘", "다시 물어봐 줘"]) assert.deepStrictEqual(T.parseCommand(s), { kind: "resend" }, s);
+  for (const s of ["말 명령 알려 줘", "명령어 목록 보여 줘", "무슨 말 할 수 있어"]) assert.deepStrictEqual(T.parseCommand(s), { kind: "help" }, s);
+  for (const s of ["이 코드 복사해 줘", "이 파일 복사해서 붙여 줘", "이 메일 다시 보내 줘", "그 파일 다시 보내 줘", "git 명령어 알려 줘", "이 명령 뭐야"]) assert.strictEqual(T.parseCommand(s), null, s);
+  // the old ones are unchanged
+  assert.deepStrictEqual(T.parseCommand("다시 읽어 줘"), { kind: "read", mode: "" });
+  assert.ok(T.stopMatch("그만"));
+});
+
+test("editor commands: read, dictate, save, terminal, open a file, volume — and lookalikes left alone", () => {
+  const is = (s, want) => assert.deepStrictEqual(T.parseCommand(s), want, s);
+  is("이거 읽어 줘", { kind: "readEditor" });
+  is("선택한 부분 읽어 줘", { kind: "readEditor" });
+  is("아까 답 다시 읽어 줘", { kind: "read", mode: "", which: "previous" });
+  is("받아 적어 줘", { kind: "dictate", on: true });
+  is("받아쓰기 시작", { kind: "dictate", on: true });
+  is("받아 적기 끝", { kind: "dictate", on: false });
+  is("그만 적어", { kind: "dictate", on: false });
+  is("받아쓰기 멈춰", { kind: "pause" }); // unchanged
+  is("저장해 줘", { kind: "action", action: "save" });
+  is("모두 저장해 줘", { kind: "action", action: "saveAll" });
+  is("터미널 열어 줘", { kind: "action", action: "terminal" });
+  is("README 파일 열어 줘", { kind: "openFile", name: "README" });
+  is("package 점 json 파일 열어", { kind: "openFile", name: "package 점 json" });
+  is("좀 더 크게 읽어 줘", { kind: "volume", delta: T.VOLUME_STEP });
+  is("볼륨 내려", { kind: "volume", delta: -T.VOLUME_STEP });
+  const editorKinds = ["readEditor", "action", "openFile", "volume", "dictate"];
+  for (const s of ["이 책 읽어 줘", "저장하는 법 알려 줘", "터미널에서 빌드해 줘", "이 파일 열어 줘", "설정 파일 열어 줘", "올려 줘", "깃에 올려 줘", "폰트 키워 줘", "테스트 돌려 줘", "목소리 저장해 줘"])
+    assert.ok(!editorKinds.includes((T.parseCommand(s) || {}).kind), s);
+  assert.ok(T.stopMatch("그만"), "그만 still ends the conversation");
+  assert.strictEqual(T.parseCommand("그만 적어").kind, "dictate");
+  assert.ok(!T.stopMatch("그만 적어"), "그만 적어 is not 그만");
+});
+
+test("spoken file names are matched against the workspace's names", () => {
+  assert.strictEqual(T.spokenFileName("extension 점 js"), "extension.js");
+  assert.strictEqual(T.fileNameScore("extension 점 js", "extension.js"), 3);
+  assert.strictEqual(T.fileNameScore("readme", "README.md"), 2);
+  assert.strictEqual(T.fileNameScore("앱", "app.js"), 2, "said in Hangul");
+  assert.strictEqual(T.fileNameScore("con", "conversation.js"), 1);
+  assert.strictEqual(T.fileNameScore("readme", "package.json"), 0);
+  assert.strictEqual(T.fileNameScore("", "a.js"), 0);
+});
+
+test("splitContext: 이 파일 보고 / 에러 보고 ask for the editor's context; 보고서 does not", () => {
+  assert.deepStrictEqual(T.splitContext("이 파일 보고 이 함수 설명해 줘"), { context: "file", text: "이 파일 보고 이 함수 설명해 줘" });
+  assert.deepStrictEqual(T.splitContext("선택한 코드 보고, 리팩터링해 줘"), { context: "file", text: "선택한 코드 보고, 리팩터링해 줘" });
+  assert.deepStrictEqual(T.splitContext("에러 보고 고쳐 줘"), { context: "errors", text: "에러 보고 고쳐 줘" });
+  for (const s of ["에러 보고서 써 줘", "이 파일", "에러 보고", "파일 보고 싶어", "테스트 돌려 줘"]) assert.strictEqual(T.splitContext(s), null, s);
+});

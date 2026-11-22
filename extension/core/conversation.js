@@ -96,6 +96,9 @@ const ANSWER_WAIT_MS = 15 * 60000; // an answer never reported stops holding the
 const FLASH_MS = 2500;
 const SPEED_RANGE = [0.7, 2.0];
 const DEFAULT_SPEED = 0.98;
+const VOLUME_RANGE = [0.2, 2.0];
+const DEFAULT_VOLUME = 1;
+const REPLIES_KEEP = 5;
 
 // bargeOnset is the fast barge-in detector, fed one mic piece at a time: st
 // is its state ({ms, fired}), vad the piece's speech probability, level its
@@ -127,13 +130,24 @@ class Conversation extends EventEmitter {
   //   voice, the user's level, the room's echo gain), kept across restarts.
   // send(text) → Promise<{ok, error}>: hands the words to Claude Code.
   // agent() → {id, name}: who send() goes to (Claude Code or Codex).
-  constructor({ engine, settings, store, send, newConversation = async () => {}, agent = () => ({ id: "claude", name: "Claude Code" }), log = () => {}, now = Date.now, vocab = V.noVocab }) {
+  // copy(text) puts the last answer on the clipboard ("복사해 줘").
+  // ide: the editor, each optional and async — readable() → the text to read
+  //   for "이거 읽어 줘" (or ""); insert(text) → true when written at the
+  //   cursor (받아 적기); attach("file" | "errors") → what to add to a
+  //   request ("이 파일 보고 …"), or ""; openFile(name) and action(name) →
+  //   a short line saying what was done, shown on the status bar.
+  // Events: "state", "off", "micFailed" (message: the mic could not be
+  // opened), "help" (the user asked for the list of spoken commands).
+  constructor({ engine, settings, store, send, newConversation = async () => {}, agent = () => ({ id: "claude", name: "Claude Code" }), copy = async () => {}, ide = {}, log = () => {}, now = Date.now, vocab = V.noVocab }) {
     super();
     this.engine = engine;
     this.settings = settings;
     this.store = store;
     this.sendText = send;
     this.openNewConversation = newConversation;
+    this.copyText = copy;
+    this.ide = { readable: async () => "", insert: async () => false, attach: async () => "", openFile: async () => "", action: async () => "", ...ide };
+    this.dictating = false; // "받아 적어 줘": what is said goes into the editor
     this.agent = agent;
     this.log = log;
     this.now = now;
@@ -168,6 +182,9 @@ class Conversation extends EventEmitter {
     this.replyText = ""; // what is (or was last) read aloud
     this.readingEndedAt = -Infinity;
     this.lastReply = "";
+    this.replies = []; // the last few answers read or shown, newest last ("아까 답 다시 읽어 줘")
+    this.lastSent = null; // {text, agent}: the last request sent (or tried), for "다시 보내 줘"
+    this.readPos = null; // {at, of}: the piece of a reading now playing, for the status bar
     this.detailHinted = false;
     this.playRefs = [];
     this.echoRatios = [];
@@ -196,7 +213,12 @@ class Conversation extends EventEmitter {
     if (this.on_) return;
     this.on_ = true;
     this.paused = false;
-    await this.engine.call("mic", this.micArgs());
+    try {
+      await this.engine.call("mic", this.micArgs());
+    } catch (e) {
+      e.micFailed = true; // so the start's error can offer the mic settings
+      throw e;
+    }
     if (this.s.listenMode === "wake") {
       this.log(`waiting for ${quote(T.wakeNameLabel(this.s))}`);
       this.render();
@@ -231,6 +253,7 @@ class Conversation extends EventEmitter {
   endConversation(note = "") {
     const was = this.conv;
     this.conv = false;
+    this.dictating = false;
     this.heard = "";
     this.problem = "";
     clearTimeout(this.resumeTimer);
@@ -259,7 +282,7 @@ class Conversation extends EventEmitter {
   state() {
     let phase = "off";
     let label = "음성 꺼짐";
-    if (!this.on_ && this.speaking) [phase, label] = ["speaking", "답변을 읽는 중"]; // a typed question's answer
+    if (!this.on_ && this.speaking) [phase, label] = ["speaking", `답변을 읽는 중${this.readProgress()}`]; // a typed question's answer
     if (this.on_) {
       if (this.problem) [phase, label] = ["problem", this.problem];
       else if (this.flashText) [phase, label] = ["note", this.flashText];
@@ -267,14 +290,21 @@ class Conversation extends EventEmitter {
       else if (this.paused && !this.speaking) [phase, label] = ["note", "인식 멈춤 — “다시 인식해” 하면 들어요"];
       // Whisper still loading: what is said now waits for it.
       else if (this.phase === "listening" && this.engine.whisper === "starting") [phase, label] = ["preparing", "준비 중 — 잠시 후 말씀하세요"];
+      else if (this.phase === "listening" && this.dictating) [phase, label] = ["listening", this.hearing ? "받아 적는 중 — 듣고 있어요" : "받아 적는 중 — “받아 적기 끝” 하면 마쳐요"];
       else if (this.phase === "listening") [phase, label] = ["listening", this.hearing ? "말소리 듣는 중" : "듣는 중 — 말씀하세요"];
       else if (this.phase === "transcribing") [phase, label] = ["transcribing", "알아듣는 중"];
-      else if (this.speaking) [phase, label] = ["speaking", "답변을 읽는 중"];
+      else if (this.speaking) [phase, label] = ["speaking", `답변을 읽는 중${this.readProgress()}`];
       else if (this.awaiting) [phase, label] = ["waiting", this.heard ? `${quote(this.heard, 20)} 답변 기다리는 중` : "답변 기다리는 중"];
       else if (this.conv) [phase, label] = ["conversation", "대화 중"];
       else [phase, label] = ["wake", `“${T.wakeNameLabel(this.s)}” 부르면 들어요`];
     }
     return { on: this.on_, conv: this.conv, phase, label, hearing: phase === "listening" && this.hearing, whisper: this.engine.whisper };
+  }
+
+  // readProgress is " (2/5)" while a reading of several pieces plays.
+  readProgress() {
+    const p = this.readPos;
+    return p && p.of > 1 ? ` (${p.at}/${p.of})` : "";
   }
 
   render() {
@@ -309,6 +339,7 @@ class Conversation extends EventEmitter {
     } catch (e) {
       this.problem = `마이크를 열 수 없어요: ${e.message}`;
       this.render();
+      this.emit("micFailed", e.message);
     }
   }
 
@@ -331,6 +362,7 @@ class Conversation extends EventEmitter {
         this.problem = "";
       } catch (e) {
         this.problem = `마이크를 열 수 없어요: ${e.message}`;
+        this.emit("micFailed", e.message);
       }
       this.render();
     }, CONV_RETRY_MS);
@@ -881,6 +913,11 @@ class Conversation extends EventEmitter {
         return;
       }
       this.convActiveAt = this.now();
+      if (this.dictating) {
+        relisten = true;
+        await this.dictate(text);
+        return;
+      }
       if (await this.runCommand(text)) {
         this.log(`command ${quote(text)}`);
         relisten = true;
@@ -891,7 +928,21 @@ class Conversation extends EventEmitter {
       // "코덱스한테 …" sends this one question to that agent, whatever the
       // aglinkVoice.target setting says.
       const to = T.splitAddressee(text);
-      await this.send(this.vocab.current().expand(to ? to.text : text), to && to.agent);
+      const said = to ? to.text : text;
+      let body = this.vocab.current().expand(said);
+      // "이 파일 보고 …" / "에러 보고 …": what the editor shows goes along.
+      const look = T.splitContext(said);
+      if (look) {
+        let extra = "";
+        try {
+          extra = (await this.ide.attach(look.context)) || "";
+        } catch (e) {
+          this.log(`context failed: ${e?.message || e}`);
+        }
+        this.log(extra ? `context attached (${look.context}, ${extra.length} chars)` : `no context to attach (${look.context})`);
+        if (extra) body = `${body}\n\n${extra}`;
+      }
+      await this.send(body, to && to.agent);
     } catch (error) {
       this.log(`transcribe failed: ${error?.message || error}`);
       this.flash("음성 인식에 실패했어요");
@@ -926,6 +977,7 @@ class Conversation extends EventEmitter {
     const agent = this.agent(agentId);
     this.log(`to ${agent.name} ${quote(text)}`);
     this.heard = text;
+    this.lastSent = { text, agent: agentId };
     this.textOnce = T.ONCE_TEXT_RE.test(text);
     const q = { id: ++this.askSeq, text, at: this.now(), agent: agent.id };
     this.asked.push(q);
@@ -972,6 +1024,65 @@ class Conversation extends EventEmitter {
     this.asked = this.asked.filter((x) => x !== q); // it never reached the agent
     this.log(`send failed: ${res?.error}`);
     void this.say((res && res.error) || `${agent.name} 로 보내지 못했어요.`); // the mic opens again after it
+  }
+
+  // setDictation starts or ends 받아 적기 from a click: starting opens the
+  // conversation if it waits for the wake word. False when voice is off.
+  setDictation(on) {
+    if (!this.on_) return false;
+    this.dictating = !!on;
+    this.log(on ? "dictation started (clicked)" : "dictation ended (clicked)");
+    if (on && !this.conv) this.startConversation();
+    this.render();
+    return true;
+  }
+
+  // dictate writes what was said into the editor at the cursor; "받아 적기
+  // 끝" ends it ("그만" still ends the conversation, and so this too).
+  async dictate(text) {
+    const c = T.parseCommand(text, this.s.voice);
+    if (c && c.kind === "dictate" && !c.on) {
+      this.dictating = false;
+      this.log("dictation ended");
+      this.render();
+      void this.say("받아 적기를 마쳤어요.");
+      return;
+    }
+    let ok = false;
+    try {
+      ok = await this.ide.insert(this.vocab.current().expand(text));
+    } catch (e) {
+      this.log(`dictation insert failed: ${e?.message || e}`);
+    }
+    if (ok) {
+      this.log(`dictated ${quote(text, 20)}`);
+      this.flash(`✏️ 적었어요: ${quote(text, 20)}`);
+      return;
+    }
+    this.dictating = false;
+    this.render();
+    void this.say("적을 편집기가 없어서 받아 적기를 마쳤어요. 파일을 연 뒤에 다시 말씀해 주세요.");
+  }
+
+  // resend sends text again as a spoken request would be (a pick from the
+  // history), opening the conversation if it is waiting for the wake word, so
+  // that the answer is read. False when voice is off or the mic is busy with
+  // something being said, recognised or enrolled.
+  async resend(text, agentId = null) {
+    const t = String(text || "").trim();
+    if (!t || !this.on_ || this.enrolling || this.phase === "transcribing") return false;
+    const rec = this.rec;
+    if (rec && (rec.barge || rec.first >= 0 || rec.prefix)) return false; // the user is talking
+    if (rec) this.stopRecording(false);
+    if (!this.conv) {
+      this.conv = true;
+      this.wake = null;
+    }
+    this.convActiveAt = this.now();
+    clearTimeout(this.resumeTimer);
+    this.resumeTimer = null;
+    await this.send(t, agentId);
+    return true;
   }
 
   // onReply is a finished turn (Claude Code's Stop hook, Codex's notify).
@@ -1145,6 +1256,7 @@ class Conversation extends EventEmitter {
     for (const ref of this.playRefs) if (ref.endAt > cut) ref.endAt = cut;
     this.engine.call("stop", { gen: this.gen }).catch(() => {});
     this.gen++;
+    this.readPos = null;
     if (this.speaking) {
       this.speaking = false;
       this.render();
@@ -1153,6 +1265,8 @@ class Conversation extends EventEmitter {
 
   async play(wav, gen) {
     if (gen !== this.gen) return;
+    const volume = this.s.volume;
+    if (volume > 0 && volume !== 1) wav = A.scaleWav(wav, volume); // before the echo reference: it is what the mic hears
     const ref = this.addPlayRef(wav);
     try {
       await this.engine.call("play", { wav: wav.toString("base64"), gen, device: this.outputDevice() });
@@ -1181,6 +1295,7 @@ class Conversation extends EventEmitter {
     // intonation through the comma. Prepare the next piece during playback.
     const sentences = T.splitSentences(text);
     this.replyText = text;
+    this.readPos = { at: 1, of: sentences.length };
     this.speaking = true; // covers the first synthesis, so the mic waits
     this.render();
     // A recording with nothing said yet is stopped, so it does not take in the whole reading.
@@ -1213,6 +1328,10 @@ class Conversation extends EventEmitter {
           // (Bluetooth) so the opening words are not lost while the stream
           // spins up. Later pieces follow close behind, the stream still awake.
           if (played === 0) wav = A.prependSilence(wav, LEAD_SILENCE_MS);
+          if (gen === this.gen && this.readPos && this.readPos.at !== i + 1) {
+            this.readPos = { at: i + 1, of: sentences.length };
+            this.render();
+          }
           await this.play(wav, gen);
           played = i + 1;
         }
@@ -1224,6 +1343,7 @@ class Conversation extends EventEmitter {
     } finally {
       if (gen === this.gen) {
         this.speaking = false;
+        this.readPos = null;
         this.readingEndedAt = this.now();
         this.render();
       }
@@ -1246,6 +1366,8 @@ class Conversation extends EventEmitter {
   // questions; a typed question's answer (typed) is read because readTyped asked.
   speakReply(md, typed = false) {
     this.lastReply = md;
+    this.replies.push(md);
+    if (this.replies.length > REPLIES_KEEP) this.replies.shift();
     if (!typed && (this.s.textOnly || this.textOnce)) {
       this.log("answer shown as text only");
       this.flash("📄 답변은 글로만 보여 드려요");
@@ -1292,6 +1414,15 @@ class Conversation extends EventEmitter {
     this.settings.set({ speed });
     this.log(`speed ${before} → ${speed}`);
     return this.say("이 빠르기로 읽을게요.");
+  }
+
+  changeVolume(delta) {
+    const before = this.s.volume > 0 ? this.s.volume : DEFAULT_VOLUME;
+    const volume = Math.round(T.clamp(before + delta, VOLUME_RANGE) * 100) / 100;
+    if (volume === before) return this.say(delta < 0 ? "지금이 가장 작은 소리예요." : "지금이 가장 큰 소리예요.");
+    this.settings.set({ volume });
+    this.log(`volume ${before} → ${volume}`);
+    return this.say("이 크기로 읽을게요.");
   }
 
   // runPausedCommand is all that is heard while paused: only resuming and
@@ -1357,8 +1488,48 @@ class Conversation extends EventEmitter {
         void this.say(c.on ? "이제 답변은 읽지 않고 글로만 보여 드릴게요. 다시 말로 해 줘, 라고 하시면 읽어 드려요." : "이제 다시 답변을 읽어 드릴게요.");
         break;
       case "read":
+        if (c.which === "previous") {
+          const prev = this.replies[this.replies.length - 2];
+          void (prev ? this.speak(prev, this.speechMode()) : this.say("그 전 답변이 없어요."));
+          break;
+        }
         void this.speakAgain(c.mode || this.speechMode());
         break;
+      case "readEditor": {
+        let text = "";
+        try {
+          text = String((await this.ide.readable()) || "").trim();
+        } catch (e) {
+          this.log(`editor text failed: ${e?.message || e}`);
+        }
+        if (!text) void this.say("읽을 글이 없어요. 편집기에서 읽을 부분을 골라 주세요.");
+        else void this.speak(text, "full"); // asked for, so read even with textOnly
+        break;
+      }
+      case "dictate":
+        if (!c.on) {
+          void this.say("받아 적는 중이 아니에요.");
+          break;
+        }
+        this.dictating = true;
+        this.log("dictation started");
+        this.render();
+        void this.say("받아 적을게요. 다 하시면 받아 적기 끝, 이라고 하세요.");
+        break;
+      case "volume":
+        void this.changeVolume(c.delta);
+        break;
+      case "openFile":
+      case "action": {
+        let line = "";
+        try {
+          line = c.kind === "openFile" ? await this.ide.openFile(c.name) : await this.ide.action(c.action);
+        } catch (e) {
+          this.log(`${c.kind} failed: ${e?.message || e}`);
+        }
+        this.flash(line || "그 일은 하지 못했어요");
+        break;
+      }
       case "unenroll":
         this.store.set("speaker", null);
         this.forgetUserLevel();
@@ -1387,6 +1558,32 @@ class Conversation extends EventEmitter {
           this.log(`new conversation failed: ${e.message}`);
           void this.say("새 대화를 열지 못했어요.");
         }
+        break;
+      case "copy":
+        if (!this.lastReply) {
+          void this.say("아직 복사할 답변이 없어요.");
+          break;
+        }
+        try {
+          await this.copyText(this.lastReply);
+          this.log("last answer copied");
+          void this.say("방금 답변을 복사했어요.");
+        } catch (e) {
+          this.log(`copy failed: ${e?.message || e}`);
+          void this.say("답변을 복사하지 못했어요.");
+        }
+        break;
+      case "resend":
+        if (!this.lastSent) {
+          void this.say("아직 보낸 말이 없어요.");
+          break;
+        }
+        this.log(`resend ${quote(this.lastSent.text)}`);
+        await this.send(this.lastSent.text, this.lastSent.agent);
+        break;
+      case "help":
+        this.emit("help");
+        void this.say("말 명령 목록을 화면에 띄웠어요.");
         break;
       case "voice":
         if (!c.name) {
@@ -1445,4 +1642,4 @@ class Conversation extends EventEmitter {
   }
 }
 
-module.exports = { Conversation, bargeOnset, SPEED_RANGE, DEFAULT_SPEED };
+module.exports = { Conversation, bargeOnset, SPEED_RANGE, DEFAULT_SPEED, VOLUME_RANGE };

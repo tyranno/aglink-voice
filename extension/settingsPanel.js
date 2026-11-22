@@ -14,7 +14,7 @@ let panel = null;
 
 // open shows the settings tab (one per VS Code window). host gives what the
 // panel shows beside the settings and what its buttons do:
-//   status() → {on, enrolled, desktop}; onChange(fn) → disposable;
+//   status() → {on, enrolled}; onChange(fn) → disposable;
 //   toggle(), preview(), enroll(), unenroll(), pickMic(), pickOutput().
 function openSettings(vscode, host) {
   if (panel) {
